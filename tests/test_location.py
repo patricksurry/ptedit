@@ -39,7 +39,9 @@ def test_find_char_forward():
 
 def test_find_char_backward():
     doc.set_point(doc.get_end())
-    assert doc.find_char_backward('f').get_char() == 'f'
-    assert doc.find_char_backward('f').get_char() == 'f'
+    assert doc.find_char_backward('f').get_char() == 'o'
+    doc.move_point(-1)
+    assert doc.find_char_backward('f').get_char() == 'a'
+    doc.move_point(-1)
     assert doc.find_char_backward('f').get_char() == 't'  # failed
-    assert doc.location_to_offset(doc.get_point()) == 0
+    assert doc.get_point() == doc.get_start()

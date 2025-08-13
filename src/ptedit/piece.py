@@ -79,6 +79,7 @@ class PrimaryPiece(Piece):
     def __post_init__(self):
         super().__post_init__()
         assert self.allow_empty or self.data
+        self.length = len(self.data)
 
     def _data_ref(self) -> tuple[PrimaryPiece, int]:
         return self, 0

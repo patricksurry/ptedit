@@ -27,15 +27,18 @@ class PieceTable:
         # These are the only Pieces that are empty
         self._start = PrimaryPiece(allow_empty=True)
         self._end = PrimaryPiece(allow_empty=True)
-        Piece.link(self._start, self._end)
+        if s:
+            # any initial data should be immutable
+            p = PrimaryPiece(s)
+            Piece.link(self._start, p)
+            Piece.link(p, self._end)
+        else:
+            Piece.link(self._start, self._end)
+
+        self.set_point(self.get_start())
 
         # Set up our edit stack
         self.edit_stack = EditStack()
-
-        self.set_point(self.get_start())
-        if s:
-            self.insert(s)
-            self.set_point(self.get_start())
 
     def get_start(self) -> Location:
         return Location(self._start.next)
@@ -79,7 +82,6 @@ class PieceTable:
 
         offset = loc.offset + delta
         p = loc.piece
-
         if offset > 0:
             while p.length <= offset and p.next:
                 offset -= p.length
@@ -98,7 +100,7 @@ class PieceTable:
 
         return Location(p, offset)
 
-    def within_range(self, loc: Location, start: Location, end: Location) -> bool:
+    def span_contains(self, loc: Location, start: Location, end: Location) -> bool:
         if loc.piece == start.piece and loc.offset < start.offset:
             return False
 
@@ -143,13 +145,13 @@ class PieceTable:
             else:
                 # insert new piece between p.prev and p
                 before, after = p.prev, p
-                ins = PrimaryPiece(length=len(s), data=s)
+                ins = PrimaryPiece(data=s)
                 edit = Edit(before, after, ins=ins)
         else:
             # split piece so we can insert
             before, after = p.prev, p.next
             pre, post = p.split(offset)
-            ins = PrimaryPiece(length=len(s), data=s)
+            ins = PrimaryPiece(data=s)
             edit = Edit(before, after, pre=pre, ins=ins, post=post)
 
         self.edit_stack.push(edit)
@@ -218,7 +220,7 @@ class PieceTable:
 
         # undo the delete so we can relink with inserted text
         self.edit_stack.undo()
-        ins = PrimaryPiece(length=len(s), data=s)
+        ins = PrimaryPiece(data=s)
         self.edit_stack.push(Edit(edit.before, edit.after, edit.pre, ins, edit.post))
         self.set_point(Location(edit.post or edit.after))
         return self
@@ -270,6 +272,7 @@ class PieceTable:
 
     def find_char_forward(self, chars: str) -> PieceTable:
         # move point before the first occurrence of a char in chars
+        # so need move_point(1) to do repeated searches
         while self.get_point() != self.get_end():
             if self.next_char() in chars:
                 self.move_point(-1)
@@ -277,9 +280,13 @@ class PieceTable:
         return self
 
     def find_char_backward(self, chars: str) -> PieceTable:
-        # move point before the first occurrence of a char in chars
+        # move point *after* the first occurrence of a char in chars
+        # so need move_point(-1) to do repeated searches
+        # see 9.13.4.1 Moving by Words
+
         while self.get_point() != self.get_start():
             if self.prev_char() in chars:
+                self.move_point(1)
                 break
         return self
 
