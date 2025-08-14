@@ -1,24 +1,9 @@
 
 from __future__ import annotations
-from dataclasses import dataclass
 
 from .piece import Piece, PrimaryPiece
-from .edit import Edit, EditStack
-
-
-@dataclass
-class Location:
-    piece: Piece
-    offset: int = 0
-
-    def __post_init__(self):
-        assert 0 <= self.offset, \
-            f"Loc can't have negative offset {self.offset}!"
-        assert self.piece.length == 0 or self.offset < self.piece.length, \
-            f"Loc offset {self.offset} >= length {self.piece.length}"
-
-    def tuple(self) -> tuple[Piece, int]:
-        return self.piece, self.offset
+from .location import Location
+from .editstack import Edit, EditStack
 
 
 class PieceTable:
@@ -49,73 +34,7 @@ class PieceTable:
     @property
     def length(self) -> int:
         """count the number of characters in the document"""
-        return self.location_to_offset(self.get_end())
-
-    @property
-    def data(self) -> str:
-        return self.slice(self.get_start(), self.get_end())
-
-    def offset_to_location(self, offset: int) -> Location:
-        """
-        Find the location for a global offset measured.
-        If offset is positive we count forward from the start,
-        if negative we count backward from the end
-        """
-        loc = self.get_start() if offset >= 0 else self.get_end()
-        # Turn it into a relative move from the start or end
-        return self.move_location(loc, offset)
-
-    def location_to_offset(self, loc: Location) -> int:
-        """Find the offset from the start of buffer to location"""
-        p, offset = loc.tuple()
-        while True:
-            p = p.prev
-            if not p:
-                break
-            offset += p.length
-        return offset
-
-    def move_location(self, loc: Location, delta: int) -> Location:
-        """Move the location by delta (forward if positive else backward)"""
-        if delta == 0:
-            return loc
-
-        offset = loc.offset + delta
-        p = loc.piece
-        if offset > 0:
-            while p.length <= offset and p.next:
-                offset -= p.length
-                p = p.next
-            # did we fall off the end?
-            if not p.next:
-                offset = 0
-        else:
-            while offset < 0 and p.prev:
-                p = p.prev
-                offset += p.length
-            # did we hit the start?
-            if not p.prev:
-                offset = 0
-                p = p.next
-
-        return Location(p, offset)
-
-    def span_contains(self, loc: Location, start: Location, end: Location) -> bool:
-        if loc.piece == start.piece and loc.offset < start.offset:
-            return False
-
-        if loc.piece == end.piece and loc.offset >= end.offset:
-            return False
-
-        p = start.piece
-        while p.next:
-            if p == loc.piece:
-                return True
-            if p == end.piece:
-                break
-            p = p.next
-
-        return False
+        return Location.span_length(self.get_start(), self.get_end())
 
     def get_point(self) -> Location:
         return self._point
@@ -125,7 +44,47 @@ class PieceTable:
         return self
 
     def move_point(self, delta: int) -> PieceTable:
-        self._point = self.move_location(self._point, delta)
+        self._point = self._point.move(delta)
+        return self
+
+    @property
+    def data(self) -> str:
+        return Location.span_data(self.get_start(), self.get_end())
+
+    def get_char(self) -> str:
+        """Return character after point"""
+        p, offset = self.get_point().tuple()
+        return p.data[offset:][:1]
+
+    def next_char(self) -> str:
+        """Return character after point and advance point"""
+        c = self.get_char()
+        self.move_point(1)
+        return c
+
+    def prev_char(self) -> str:
+        """Return character preceding point and retreat point"""
+        self.move_point(-1)
+        return self.get_char()
+
+    def find_char_forward(self, chars: str) -> PieceTable:
+        # move point before the first occurrence of a char in chars
+        # so need move_point(1) to do repeated searches
+        while self.get_point() != self.get_end():
+            if self.next_char() in chars:
+                self.move_point(-1)
+                break
+        return self
+
+    def find_char_backward(self, chars: str) -> PieceTable:
+        # move point *after* the first occurrence of a char in chars
+        # so need move_point(-1) to do repeated searches
+        # see 9.13.4.1 Moving by Words
+
+        while self.get_point() != self.get_start():
+            if self.prev_char() in chars:
+                self.move_point(1)
+                break
         return self
 
     def insert(self, s: str) -> PieceTable:
@@ -133,6 +92,7 @@ class PieceTable:
             return self
 
         p, offset = self.get_point().tuple()
+        inplace = False
         # inserting between two existing pieces?
         if not offset:
             # continuing a previous insert?
@@ -141,7 +101,7 @@ class PieceTable:
                 ins = p.prev
                 ins.length += len(s)
                 ins.data += s
-                edit = None
+                inplace = True
             else:
                 # insert new piece between p.prev and p
                 before, after = p.prev, p
@@ -154,10 +114,8 @@ class PieceTable:
             ins = PrimaryPiece(data=s)
             edit = Edit(before, after, pre=pre, ins=ins, post=post)
 
-        self.edit_stack.push(edit)
-
-        # in all cases advance point after the insertion point
-        self.set_point(Location(ins.next))
+        self.edit_stack.push(None if inplace else edit)
+        self.set_point(edit.location())
         return self
 
     def delete(self, length: int) -> PieceTable:
@@ -166,7 +124,7 @@ class PieceTable:
             return self
 
         pt = self.get_point()
-        loc = self.move_location(pt, length)
+        loc = pt.move(length)
 
         if length < 0:
             # for convenience, ensure point is before loc
@@ -187,8 +145,9 @@ class PieceTable:
             after = loc.piece.next
             post = loc.piece.split(loc.offset)[1]
 
-        self.edit_stack.push(Edit(before, after, pre=pre, post=post))
-        self.set_point(Location(post or after))
+        edit = Edit(before, after, pre=pre, post=post)
+        self.edit_stack.push(edit)
+        self.set_point(edit.location())
         return self
 
     def replace(self, s: str) -> PieceTable:
@@ -221,73 +180,19 @@ class PieceTable:
         # undo the delete so we can relink with inserted text
         self.edit_stack.undo()
         ins = PrimaryPiece(data=s)
-        self.edit_stack.push(Edit(edit.before, edit.after, edit.pre, ins, edit.post))
-        self.set_point(Location(edit.post or edit.after))
+        edit = Edit(edit.before, edit.after, edit.pre, ins, edit.post)
+        self.edit_stack.push(edit)
+        self.set_point(edit.location())
         return self
 
     def undo(self) -> PieceTable:
-        self.edit_stack.undo()
+        if loc := self.edit_stack.undo():
+            self.set_point(loc)
         return self
 
     def redo(self) -> PieceTable:
-        self.edit_stack.redo()
-        return self
-
-    def slice(self, start: Location, end: Location) -> str:
-        p, offset = start.tuple()
-        q, q_offset = end.tuple()
-        s = ''
-        while p != q:
-            s += p.data[offset:]
-            offset = 0
-            p = p.next
-        s += p.data[offset:q_offset]
-        return s
-
-    def get_char(self) -> str:
-        """Return character after point"""
-        p, offset = self.get_point().tuple()
-        return p.data[offset:][:1]
-
-    def next_char(self) -> str:
-        """Return character after point and advance point"""
-        c = self.get_char()
-        self.move_point(1)
-        return c
-
-    def prev_char(self) -> str:
-        """Return character preceding point and retreat point"""
-        self.move_point(-1)
-        return self.get_char()
-
-    def get_string(self, n = 1) -> str:
-        """Return up to n characters from point through end of buffer"""
-        pt = self.get_point()
-        s = ''
-        while n:
-            s += self.next_char()
-            n -= 1
-        self.pt = pt
-        return s
-
-    def find_char_forward(self, chars: str) -> PieceTable:
-        # move point before the first occurrence of a char in chars
-        # so need move_point(1) to do repeated searches
-        while self.get_point() != self.get_end():
-            if self.next_char() in chars:
-                self.move_point(-1)
-                break
-        return self
-
-    def find_char_backward(self, chars: str) -> PieceTable:
-        # move point *after* the first occurrence of a char in chars
-        # so need move_point(-1) to do repeated searches
-        # see 9.13.4.1 Moving by Words
-
-        while self.get_point() != self.get_start():
-            if self.prev_char() in chars:
-                self.move_point(1)
-                break
+        if loc := self.edit_stack.redo():
+            self.set_point(loc)
         return self
 
     def __str__(self):

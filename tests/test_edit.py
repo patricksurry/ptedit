@@ -13,7 +13,7 @@ def test_str():
 
 def test_delete():
     doc = piecetable.PieceTable('the quick brown fox')
-    doc.set_point(doc.offset_to_location(9))
+    doc.set_point(doc.get_start().move(9))
     doc.delete(-1)
     doc.delete(-1)
     assert doc.data == 'the qui brown fox'

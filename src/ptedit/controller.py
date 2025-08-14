@@ -2,18 +2,68 @@ import curses
 from curses import wrapper, window
 from os import path
 
-from .piecetable import PieceTable, Location
-
+from .piecetable import PieceTable
+from .location import Location
 
 #TODO maintain a 'place' mark for output, so can scan chars
 # to count row/col and find where place=point
 
-class Display:
-    def __init__(self, doc: PieceTable, height: int, width: int, tab=8):
+class Controller:
+    def __init__(self, doc: PieceTable,
+            height: int,
+            width: int,
+            guard_rows=4,
+            preferred_row=0,
+            tab=8):
         self.doc = doc
-        self.tab = tab
         self.height = height
         self.width = width
+
+        # layout options
+        self.tab = tab
+        self.guard_rows = guard_rows
+        self.preferred_row = preferred_row or int(0.4*height)
+
+        # state
+        self.insert_mode = True
+        self.meta_mode = False
+
+    def insert(self, ch):
+        c = chr(ch)
+        if self.insert_mode:
+            self.doc.insert(c)
+        else:
+            self.doc.replace(c)
+
+    def toggle_insert(self):
+        self.insert_mode = not self.insert_mode
+
+    def toggle_meta(self):
+        self.meta_mode = not self.meta_mode
+
+    def move_forward_char(self):
+        self.doc.move_point(1)
+
+    def move_backward_char(self):
+        self.doc.move_point(-1)
+
+    def move_forward_line(self):
+        self.doc.move_point(40)
+
+    def move_backward_line(self):
+        self.doc.move_point(-40)
+
+    def delete_forward_char(self):
+        self.doc.delete(1)
+
+    def delete_backward_char(self):
+        self.doc.delete(-1)
+
+    def undo(self):
+        self.doc.undo()
+
+    def redo(self):
+        self.doc.redo()
 
     def next_wrap(self):
         """
@@ -36,9 +86,6 @@ class Display:
 
     def frame_point(self,
             preferred_top: Location,
-            margin_top = 4,
-            margin_bottom = 4,
-            preferred_row_fraction = 0.4
             ):
         """
         Frame the point with a list of row start locations.
@@ -61,17 +108,16 @@ class Display:
         """
 
         # find a safe place to start framing
-        pt = self.doc.get_point()
+        loc = pt = self.doc.get_point()
         newlines = 0
         chars = 0
-        loc = self.doc.get_point()
         while True:
             self.doc.find_char_backward('\n')
             newlines += 1
-            chars += len(self.doc.slice(self.doc.get_point(), loc))
+            chars += len(Location.span_data(self.doc.get_point(), loc))
             loc = self.doc.get_point()
             if (
-                self.doc.get_point() == self.doc.get_start()
+                loc == self.doc.get_start()
                 or newlines == self.height
                 or chars >= self.height * self.width
             ):
@@ -84,7 +130,7 @@ class Display:
         while not found:
             breaks.append(loc)
             self.next_wrap()
-            found = self.doc.span_contains(pt, loc, self.doc.get_point())
+            found = Location.span_contains(pt, loc, self.doc.get_point())
             loc = self.doc.get_point()
         breaks.append(loc)
         # the point is in the final span
@@ -95,14 +141,14 @@ class Display:
             # if preferred_top is a break, orient relative to that
             s = breaks[:k+1].index(preferred_top)
             s = min(
-                # k - s <= self.height - margin_bottom
-                max(s, k - self.height + margin_bottom),
-                # k - s >= margin_top;  s >= 0
-                max(0, k - margin_top)
+                # k - s <= height - guard_rows
+                max(s, k - self.height + self.guard_rows),
+                # k - s >= guard_rows;  s >= 0
+                max(0, k - self.guard_rows)
             )
         except ValueError:
             # otherwise put point a reasonable way down the screen
-            s = max(0, k - int(preferred_row_fraction * self.height))
+            s = max(0, k - int(self.preferred_row))
 
         breaks = breaks[s:]
         while len(breaks) <= self.height and self.doc.get_point() != self.doc.get_end():
@@ -148,6 +194,32 @@ class Display:
         scr.refresh()
 
         return top
+
+def CTRL(c):
+    return ord(c[0].upper()) - ord('@')
+
+control_keys = {
+    curses.KEY_LEFT: Controller.move_backward_char,
+    curses.KEY_RIGHT: Controller.move_forward_char,
+    curses.KEY_UP: Controller.move_backward_line,
+    curses.KEY_DOWN: Controller.move_forward_line,
+    curses.KEY_BACKSPACE: Controller.delete_backward_char,
+    curses.KEY_ENTER: Controller.insert,
+    127: Controller.delete_backward_char,
+    CTRL('D'): Controller.delete_forward_char,
+    CTRL('I'): Controller.insert,       # tab
+    CTRL('J'): Controller.insert,       # newline
+    CTRL('O'): Controller.toggle_insert,
+    CTRL('Y'): Controller.redo,
+    CTRL('Z'): Controller.undo,
+    CTRL('['): Controller.toggle_meta,  # escape
+}
+
+meta_keys = {
+    CTRL('['): Controller.toggle_meta, # escape
+    ord('y'): Controller.redo,
+    ord('z'): Controller.undo,
+}
 
 """
 TODO control and meta key map
@@ -196,27 +268,30 @@ def main_loop(stdscr):
     stdscr.scrollok(False)
     curses.curs_set(2)
     height, width = stdscr.getmaxyx()
-    display = Display(doc, height, width)
+    controller = Controller(doc, height, width)
 
     top = doc.get_start()
 
     while True:
-        top = display.refresh(stdscr, top)
+        top = controller.refresh(stdscr, top)
         key = stdscr.getch()
-        match key:
-            case curses.KEY_LEFT:
-                doc.move_point(-1)
-            case curses.KEY_RIGHT:
-                doc.move_point(1)
-            case curses.KEY_UP:
-                doc.move_point(-40)
-            case curses.KEY_DOWN:
-                doc.move_point(40)
-            case curses.KEY_BACKSPACE | 127:
-                doc.delete(-1)
-            case _:
-                if 32 <= key < 127:
-                    doc.insert(chr(key))
+        if controller.meta_mode:
+            if key in meta_keys:
+                fn = meta_keys[key]
+                fn(controller)
+            else:
+                curses.flash()
+            controller.meta_mode = False
+        elif key in control_keys:
+            fn = control_keys[key]
+            if fn == Controller.insert:
+                fn(controller, key)
+            else:
+                fn(controller)
+        elif 32 <= key < 127:
+            controller.insert(key)
+        else:
+            curses.flash()
 
 if __name__ == "__main__":
     alice = open(path.join(path.dirname(__file__), '../../tests/alice1flow.asc')).read()
