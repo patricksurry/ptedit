@@ -5,6 +5,7 @@ from os import path
 from .piecetable import PieceTable
 from .location import Location
 
+whitespace = ' \t\n'
 
 class Controller:
     def __init__(self, doc: PieceTable,
@@ -46,6 +47,31 @@ class Controller:
 
     def move_backward_char(self):
         self.doc.move_point(-1)
+
+    def move_forward_word(self):
+        self.doc.find_char_forward(whitespace)
+        self.doc.find_not_char_forward(whitespace)
+
+    def move_backward_word(self):
+        self.doc.find_not_char_backward(whitespace)
+        self.doc.find_char_backward(whitespace)
+
+    def move_forward_para(self):
+        while self.doc.get_point() != self.doc.get_end():
+            self.doc.find_char_forward('\n')
+            self.doc.move_point(1)
+            if self.doc.get_char() in whitespace:
+                break
+        self.doc.find_not_char_forward(whitespace)
+
+    def move_backward_para(self):
+        self.doc.find_not_char_backward(whitespace)
+        while self.doc.get_point() != self.doc.get_start():
+            self.doc.find_char_backward('\n')
+            if self.doc.get_char() in whitespace:
+                break
+            self.doc.move_point(-1)
+        self.doc.find_not_char_forward(whitespace)
 
     def move_start_line(self):
         self.clamp_to_bol()
@@ -268,6 +294,8 @@ control_keys = {
     curses.KEY_ENTER: Controller.insert,
     127: Controller.delete_backward_char,
     ctrl('A'): Controller.move_start_line,
+    ctrl('B'): Controller.move_backward_word,
+    ctrl('F'): Controller.move_forward_word,
     ctrl('E'): Controller.move_end_line,
     ctrl('D'): Controller.delete_forward_char,
     ctrl('I'): Controller.insert,       # tab
@@ -280,6 +308,8 @@ control_keys = {
 meta_keys = {
     ctrl('['): Controller.toggle_meta, # escape
     ord('a'): Controller.move_backward_page,
+    ord('b'): Controller.move_backward_para,
+    ord('f'): Controller.move_forward_para,
     ord('e'): Controller.move_forward_page,
     ord('A'): Controller.move_start,
     ord('E'): Controller.move_end,

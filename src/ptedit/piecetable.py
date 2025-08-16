@@ -76,6 +76,15 @@ class PieceTable:
                 break
         return self
 
+    def find_not_char_forward(self, chars: str) -> PieceTable:
+        # move point before the first occurrence of a char in chars
+        # so need move_point(1) to do repeated searches
+        while self.get_point() != self.get_end():
+            if self.next_char() not in chars:
+                self.move_point(-1)
+                break
+        return self
+
     def find_char_backward(self, chars: str) -> PieceTable:
         # move point *after* the first occurrence of a char in chars
         # so need move_point(-1) to do repeated searches
@@ -83,6 +92,17 @@ class PieceTable:
 
         while self.get_point() != self.get_start():
             if self.prev_char() in chars:
+                self.move_point(1)
+                break
+        return self
+
+    def find_not_char_backward(self, chars: str) -> PieceTable:
+        # move point *after* the first occurrence of a char in chars
+        # so need move_point(-1) to do repeated searches
+        # see 9.13.4.1 Moving by Words
+
+        while self.get_point() != self.get_start():
+            if self.prev_char() not in chars:
                 self.move_point(1)
                 break
         return self
