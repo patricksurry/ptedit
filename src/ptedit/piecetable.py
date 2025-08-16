@@ -52,7 +52,7 @@ class PieceTable:
         return Location.span_data(self.get_start(), self.get_end())
 
     def get_char(self) -> str:
-        """Return character after point"""
+        """Return character after point, without moving point"""
         p, offset = self.get_point().tuple()
         return p.data[offset:][:1]
 

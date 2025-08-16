@@ -5,8 +5,6 @@ from os import path
 from .piecetable import PieceTable
 from .location import Location
 
-#TODO maintain a 'place' mark for output, so can scan chars
-# to count row/col and find where place=point
 
 class Controller:
     def __init__(self, doc: PieceTable,
@@ -23,10 +21,12 @@ class Controller:
         self.tab = tab
         self.guard_rows = guard_rows
         self.preferred_row = preferred_row or int(0.4*height)
+        self.preferred_col = 0
 
         # state
         self.insert_mode = True
         self.meta_mode = False
+        self.is_column_sticky = True
 
     def insert(self, ch):
         c = chr(ch)
@@ -47,11 +47,41 @@ class Controller:
     def move_backward_char(self):
         self.doc.move_point(-1)
 
+    def move_start_line(self):
+        self.clamp_to_bol()
+
+    def move_end_line(self):
+        self.clamp_to_bol()
+        self.bol_to_next_bol()
+        self.move_backward_char()
+
     def move_forward_line(self):
-        self.doc.move_point(40)
+        self.clamp_to_bol()
+        self.bol_to_next_bol()
+        self.bol_to_preferred_col()
 
     def move_backward_line(self):
-        self.doc.move_point(-40)
+        self.clamp_to_bol()
+        self.bol_to_prev_bol()
+        self.bol_to_preferred_col()
+
+    def move_forward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.height):
+            self.bol_to_next_bol()
+        self.bol_to_preferred_col()
+
+    def move_backward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.height):
+            self.bol_to_prev_bol()
+        self.bol_to_preferred_col()
+
+    def move_start(self):
+        self.doc.set_point(self.doc.get_start())
+
+    def move_end(self):
+        self.doc.set_point(self.doc.get_end())
 
     def delete_forward_char(self):
         self.doc.delete(1)
@@ -65,137 +95,168 @@ class Controller:
     def redo(self):
         self.doc.redo()
 
-    def next_wrap(self):
+    def _bol_forward(self, max_col: int | None = None):
         """
         Advance point to the next soft-break location,
         i.e. just past a newline/whitespace/hyphen or end of doc.
         """
         safe: Location | None = None
         col = 0
-        while True:
+        while max_col is None or col <= max_col:
             c = self.doc.next_char()
             if not c or c in ' -\t\n':
                 safe = self.doc.get_point()
             col += 1 if c != '\t' else (self.tab - (col % self.tab))
             # time to break line?
             if not c or c == '\n' or col >= self.width:
-                # retreat to last safe break point if we found one
+                # retreat to last safe break point if there was one
+                # otherwise leave the point unchanged
                 if safe:
                     self.doc.set_point(safe)
                 break
+        if max_col is not None:
+            self.doc.move_point(-1)
 
-    def frame_point(self,
-            preferred_top: Location,
-            ):
+    def bol_to_next_bol(self):
+        self._bol_forward()
+
+    def bol_to_preferred_col(self):
+        self._bol_forward(self.preferred_col)
+        self.is_column_sticky = False
+
+    def clamp_to_bol(self):
         """
-        Frame the point with a list of row start locations.
-        Start by finding a newline before the earliest
-        possible top of the screen.
-        This is one of: the start of the document;
-        row newlines before the point;
-        or one newline before row*cols displayed characters;
-        whichever comes first.
-        Calculate line break locations from there until
-        we pass the point.
-        If we encounter the preferred top of screen beforehand,
-        use that as the start of the screen.
-        If possible, adjust the start so that the point
-        is within the preferred row range.
-        If we don't find the preferred top of screen,
-        set the top using a preferred row offset.
-        Continue calculating line breaks as needed until
-        we have row of them.
+        Move the point back to prior bol.
+        Unlike bol_to_prev_bol this is a no-op if we're already at BOL
         """
-
-        # find a safe place to start framing
-        loc = pt = self.doc.get_point()
-        newlines = 0
-        chars = 0
-        while True:
-            self.doc.find_char_backward('\n')
-            newlines += 1
-            chars += len(Location.span_data(self.doc.get_point(), loc))
-            loc = self.doc.get_point()
-            if (
-                loc == self.doc.get_start()
-                or newlines == self.height
-                or chars >= self.height * self.width
-            ):
-                break
-            self.doc.move_point(-1)     # skip before the newline
-
-        # find line breaks until we reach the point
-        breaks: list[Location] = []
-        found = False
-        while not found:
-            breaks.append(loc)
-            self.next_wrap()
-            found = Location.span_contains(pt, loc, self.doc.get_point())
-            loc = self.doc.get_point()
-        breaks.append(loc)
-        # the point is in the final span
-        k = len(breaks)-1
-
-        # choose row to start the screen
-        try:
-            # if preferred_top is a break, orient relative to that
-            s = breaks[:k+1].index(preferred_top)
-            s = min(
-                # k - s <= height - guard_rows
-                max(s, k - self.height + self.guard_rows),
-                # k - s >= guard_rows;  s >= 0
-                max(0, k - self.guard_rows)
-            )
-        except ValueError:
-            # otherwise put point a reasonable way down the screen
-            s = max(0, k - int(self.preferred_row))
-
-        breaks = breaks[s:]
-        while len(breaks) <= self.height and self.doc.get_point() != self.doc.get_end():
-            self.next_wrap()
-            breaks.append(self.doc.get_point())
-
-        self.doc.set_point(pt)
-        return breaks[:self.height+1]
-
-    def refresh(self, scr: window, last_top: Location) -> Location:
         pt = self.doc.get_point()
 
-        breaks = self.frame_point(last_top)
-        top = breaks[0]
+        self.doc.find_char_backward('\n')
+        while True:
+            loc = self.doc.get_point()
+            if loc == pt:
+                break
+            self.bol_to_next_bol()
+            if Location.span_contains(pt, loc, self.doc.get_point()):
+                self.doc.set_point(loc)
+                break
 
-        cursor = None
+    def bol_to_prev_bol(self):
+        """
+        Move from BOL to the previous BOL.
+        This is a no-op at the document start.
+        """
+
+        pt = self.doc.get_point()
+        if pt == self.doc.get_start():
+            return
+
+        self.doc.move_point(-1)
+        self.doc.find_char_backward('\n')
+        while True:
+            loc = self.doc.get_point()
+            self.bol_to_next_bol()
+            if pt == self.doc.get_point():
+                break
+        self.doc.set_point(loc)
+
+    def bol_to_bol_length(self):
+        """
+        Count the number of characters from point (at BOL)
+        to the next BOL
+        """
+        pt = self.doc.get_point()
+        self.bol_to_next_bol()
+        n = Location.span_length(pt, self.doc.get_point())
+        self.doc.set_point(pt)
+        return n
+
+    def find_top(self, preferred_top: Location):
+        """
+        Move the point to the top left of the screen,
+        anchoring to preferred_top if possible.
+        """
+        #TODO this alayws treats end-of-doc as new line even when there isn't
+        # an actual newline
+        self.clamp_to_bol()
+        for k in range(self.height):
+            self.bol_to_prev_bol()
+            if k == self.preferred_row:
+                fallback = self.doc.get_point()
+            if self.doc.get_point() == preferred_top:
+                break
+
+        # found top?
+        if k < self.height-1:
+            # too close to point?
+            while k < self.guard_rows:
+                self.bol_to_prev_bol()
+                k += 1
+
+            # found top too far from point?
+            while k > self.height - self.guard_rows:
+                self.bol_to_next_bol()
+                k -= 1
+        else:
+            self.doc.set_point(fallback)
+
+    def paint(self, scr: window, last_top: Location) -> Location:
+        """
+        Paint the buffer to the screen, returning the new top-left location.
+        Leaves point unchanged.
+        """
+        pt = self.doc.get_point()
+        top = self.find_top(last_top)
+        cursor = None           # the y,x of the point
+
         scr.clear()
-
-        self.doc.set_point(top)
-        for y in range(len(breaks)-1):
-            try:
-                scr.move(y, 0)
-            except:
-                print(f"move failed for {y}")
+        y = 0
+        while y < self.height:
             x = 0
-            while self.doc.get_point() != breaks[y+1]:
+            scr.move(y, x)
+            for _ in range(self.bol_to_bol_length()):
                 if self.doc.get_point() == pt:
-                    cursor = scr.getyx()
+                    cursor = (y,x)
 
-                ch = ord(self.doc.next_char())
+                c = self.doc.next_char()
+                ch = ord(c) if c else None
                 if 32 <= ch < 127:
                     if x < self.width-1:
-                        scr.addch(ch)   # TODO tab, nl etc
+                        scr.addch(ch)
                     else:
-                        scr.insch(ch)   # TODO tab, nl etc
-                x += 1
+                        scr.insch(ch)
+                    x += 1
+                elif ch == 9:       # tab
+                    k = self.tab - (x % self.tab)
+                    x += k
+                    while k:
+                        scr.addch(32)
+                        k -= 1
 
-        #TODO this should always be found
-        assert cursor
+            # last line without trailing newline?
+            if self.doc.get_point() == self.doc.get_end() and ch != 10:
+                x += 1
+                break
+            y += 1
+
+        if not cursor:
+            cursor = (y,x)
+
+        # update preferred column unless this was a non-sticky cursor movement
+        if self.is_column_sticky:
+            self.preferred_col = cursor[1]
+        else:
+            self.is_column_sticky = True
+
         scr.move(*cursor)
+        scr.refresh()
 
         self.doc.set_point(pt)
-        scr.refresh()
 
         return top
 
-def CTRL(c):
+
+def ctrl(c):
     return ord(c[0].upper()) - ord('@')
 
 control_keys = {
@@ -206,17 +267,23 @@ control_keys = {
     curses.KEY_BACKSPACE: Controller.delete_backward_char,
     curses.KEY_ENTER: Controller.insert,
     127: Controller.delete_backward_char,
-    CTRL('D'): Controller.delete_forward_char,
-    CTRL('I'): Controller.insert,       # tab
-    CTRL('J'): Controller.insert,       # newline
-    CTRL('O'): Controller.toggle_insert,
-    CTRL('Y'): Controller.redo,
-    CTRL('Z'): Controller.undo,
-    CTRL('['): Controller.toggle_meta,  # escape
+    ctrl('A'): Controller.move_start_line,
+    ctrl('E'): Controller.move_end_line,
+    ctrl('D'): Controller.delete_forward_char,
+    ctrl('I'): Controller.insert,       # tab
+    ctrl('J'): Controller.insert,       # newline
+    ctrl('Y'): Controller.redo,
+    ctrl('Z'): Controller.undo,
+    ctrl('['): Controller.toggle_meta,  # escape
 }
 
 meta_keys = {
-    CTRL('['): Controller.toggle_meta, # escape
+    ctrl('['): Controller.toggle_meta, # escape
+    ord('a'): Controller.move_backward_page,
+    ord('e'): Controller.move_forward_page,
+    ord('A'): Controller.move_start,
+    ord('E'): Controller.move_end,
+    ord('o'): Controller.toggle_insert,
     ord('y'): Controller.redo,
     ord('z'): Controller.undo,
 }
@@ -273,7 +340,8 @@ def main_loop(stdscr):
     top = doc.get_start()
 
     while True:
-        top = controller.refresh(stdscr, top)
+#        top = controller.refresh(stdscr, top)
+        top = controller.paint(stdscr, top)
         key = stdscr.getch()
         if controller.meta_mode:
             if key in meta_keys:

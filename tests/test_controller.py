@@ -14,7 +14,7 @@ def test_frame():
 def test_wrap():
     doc = piecetable.PieceTable('the\t quick brown fox\njumps \tover the lazy dog')
     win = controller.Controller(doc, 24, 16)
-    win.next_wrap()
+    win.bol_to_next_bol()
     assert doc.get_point().position() == 11
-    win.next_wrap()
+    win.bol_to_next_bol()
     assert doc.get_point().position() == 21

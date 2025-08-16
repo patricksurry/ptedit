@@ -64,6 +64,9 @@ class Location:
 
     @staticmethod
     def span_contains(loc: Self, start: Self, end: Self) -> bool:
+        """
+        Test whether loc is in the interval [start, end)
+        """
         if loc.piece == start.piece and loc.offset < start.offset:
             return False
 
