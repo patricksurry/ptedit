@@ -40,7 +40,9 @@ def test_soak():
                 randomize_point(doc)
                 doc.replace(random_text())
 
-    for _ in range(n):
+    # we get about 30% reduction with n=8192 and text=1024 because some edits combine
+    assert doc.edit_stack.sp < n, "expected collapsed edits"
+    while doc.edit_stack.sp:
         doc.undo()
 
     assert doc.data == corpus

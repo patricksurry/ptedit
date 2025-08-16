@@ -1,7 +1,9 @@
 from ptedit import controller, piecetable, location
 from os import path
 
+
 ALICE_NL = open(path.join(path.dirname(__file__), 'alice1.asc')).read()
+
 
 def test_frame():
     alice = piecetable.PieceTable(ALICE_NL)
@@ -12,6 +14,7 @@ def test_frame():
     top = alice.get_point()
     s = location.Location.span_data(top, pt)
     assert s.startswith('the book her sister')
+
 
 def test_wrap():
     doc = piecetable.PieceTable('the\t quick brown fox\njumps \tover the lazy dog')

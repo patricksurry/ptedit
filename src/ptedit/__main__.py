@@ -1,6 +1,7 @@
 import curses
 from curses import wrapper
 import sys
+import os
 
 from .piecetable import PieceTable
 from .controller import Controller
@@ -14,7 +15,7 @@ def ctrl(c):
     Note that control-keys are case-insenstive, i.e. shift doesn't matter.
     In fact only the lower five bits matter, so C-@ and C-space are normally equivalent.
     """
-    return ord(c[0].upper()) - ord('@')
+    return ord(c[0]) & 0b11111
 
 # note curses won't see all control keys since zsh is intercepting some
 # like ctrl-S/ctrl-I etc.
@@ -42,6 +43,7 @@ control_keys = {
     ctrl('Y'): Controller.redo,
     ctrl('Z'): Controller.undo,
     ctrl('['): Controller.toggle_meta,  # escape
+    ctrl('_'): Controller.squash,
 }
 
 
@@ -84,11 +86,16 @@ C-?_DEL 0x1f
 def main_loop(stdscr):
 
     fname = sys.argv[1]
+    if not os.path.exists(fname):
+        open(fname, 'w').close()
+
     data = open(fname).read()
     doc = PieceTable(data)
 
     stdscr.scrollok(False)
-    curses.curs_set(2)
+    # the actual cursor shape is determined by the terminal, e.g. for OS X terminal
+    # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
+    curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)
     height, width = stdscr.getmaxyx()
     controller = Controller(doc, height, width, fname=fname)
 

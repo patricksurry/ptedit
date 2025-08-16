@@ -37,6 +37,9 @@ class Controller:
         if self.fname:
             open(self.fname, 'w').write(self.doc.data)
 
+    def squash(self):
+        self.doc = PieceTable(self.doc.data)
+
     def insert(self, ch):
         c = chr(ch)
         if self.insert_mode:
@@ -245,6 +248,7 @@ class Controller:
 
         scr.clear()
 
+        ch = 0                  # in case doc is empty, when there is no prior char
         y = 0
         while y < self.height:
             x = 0
@@ -283,11 +287,17 @@ class Controller:
         else:
             self.is_column_sticky = True
 
-        #TODO fname/bufptr
         doc_nl = self.doc.data.count('\n')
         pt_nl = Location.span_data(self.doc.get_start(), pt).count('\n')
         dirty = ('*' if self.doc.edit_stack.sp else '') + f'{self.fname}'
-        status = f" {dirty}  edits {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}  line {pt_nl}/{doc_nl}  pos {pt.position()}/{self.doc.length}  xy {cursor[1]},{cursor[0]}"
+        status = "  ".join([
+            f" {dirty}",
+            f"xy {cursor[1]},{cursor[0]}",
+            f"pos {pt.position()}/{self.doc.length}",
+            f"lns {pt_nl}/{doc_nl}",
+            f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
+            f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
+        ])
         status += " " * (self.width - len(status))
         try:
             scr.addstr(self.height, 0, status, curses.A_REVERSE)

@@ -28,6 +28,14 @@ class Location:
             offset += p.length
         return offset
 
+    def chain_length(self) -> Self:
+        n = 0
+        p = self.piece
+        while p:
+            p = p.prev
+            n += 1
+        return n
+
     def move(self, delta: int) -> Self:
         """Move the location by delta (forward if positive else backward)"""
         if delta == 0:
@@ -94,4 +102,3 @@ class Location:
             p = p.next
         s += p.data[offset:q_offset]
         return s
-
