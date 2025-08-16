@@ -6,10 +6,12 @@ ALICE_NL = open(path.join(path.dirname(__file__), 'alice1.asc')).read()
 def test_frame():
     alice = piecetable.PieceTable(ALICE_NL)
     alice.set_point(alice.get_start().move(595))
-    win = controller.Controller(alice, 24, 80)
-    start = win.frame_point(alice.get_end())[0]
-
-    assert location.Location.span_data(start, alice.get_point())[:8] == '"without'
+    pt = alice.get_point()
+    win = controller.Controller(alice, 24, 72)
+    win.find_top(alice.get_end())
+    top = alice.get_point()
+    s = location.Location.span_data(top, pt)
+    assert s.startswith('the book her sister')
 
 def test_wrap():
     doc = piecetable.PieceTable('the\t quick brown fox\njumps \tover the lazy dog')

@@ -1,22 +1,26 @@
 import curses
-from curses import wrapper, window
-from os import path
+from curses import window
 
 from .piecetable import PieceTable
 from .location import Location
 
+
 whitespace = ' \t\n'
 
+
 class Controller:
-    def __init__(self, doc: PieceTable,
+    def __init__(self,
+            doc: PieceTable,
             height: int,
             width: int,
+            fname='',
             guard_rows=4,
             preferred_row=0,
             tab=8):
         self.doc = doc
-        self.height = height
+        self.height = height-1      # save last line for status
         self.width = width
+        self.fname = fname
 
         # layout options
         self.tab = tab
@@ -28,6 +32,10 @@ class Controller:
         self.insert_mode = True
         self.meta_mode = False
         self.is_column_sticky = True
+
+    def save(self):
+        if self.fname:
+            open(self.fname, 'w').write(self.doc.data)
 
     def insert(self, ch):
         c = chr(ch)
@@ -236,6 +244,7 @@ class Controller:
         cursor = None           # the y,x of the point
 
         scr.clear()
+
         y = 0
         while y < self.height:
             x = 0
@@ -274,127 +283,20 @@ class Controller:
         else:
             self.is_column_sticky = True
 
+        #TODO fname/bufptr
+        doc_nl = self.doc.data.count('\n')
+        pt_nl = Location.span_data(self.doc.get_start(), pt).count('\n')
+        dirty = ('*' if self.doc.edit_stack.sp else '') + f'{self.fname}'
+        status = f" {dirty}  edits {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}  line {pt_nl}/{doc_nl}  pos {pt.position()}/{self.doc.length}  xy {cursor[1]},{cursor[0]}"
+        status += " " * (self.width - len(status))
+        try:
+            scr.addstr(self.height, 0, status, curses.A_REVERSE)
+        except curses.error:
+            pass
+
         scr.move(*cursor)
         scr.refresh()
 
         self.doc.set_point(pt)
 
         return top
-
-
-def ctrl(c):
-    return ord(c[0].upper()) - ord('@')
-
-control_keys = {
-    curses.KEY_LEFT: Controller.move_backward_char,
-    curses.KEY_RIGHT: Controller.move_forward_char,
-    curses.KEY_UP: Controller.move_backward_line,
-    curses.KEY_DOWN: Controller.move_forward_line,
-    curses.KEY_BACKSPACE: Controller.delete_backward_char,
-    curses.KEY_ENTER: Controller.insert,
-    127: Controller.delete_backward_char,
-    ctrl('A'): Controller.move_start_line,
-    ctrl('B'): Controller.move_backward_word,
-    ctrl('F'): Controller.move_forward_word,
-    ctrl('E'): Controller.move_end_line,
-    ctrl('D'): Controller.delete_forward_char,
-    ctrl('I'): Controller.insert,       # tab
-    ctrl('J'): Controller.insert,       # newline
-    ctrl('Y'): Controller.redo,
-    ctrl('Z'): Controller.undo,
-    ctrl('['): Controller.toggle_meta,  # escape
-}
-
-meta_keys = {
-    ctrl('['): Controller.toggle_meta, # escape
-    ord('a'): Controller.move_backward_page,
-    ord('b'): Controller.move_backward_para,
-    ord('f'): Controller.move_forward_para,
-    ord('e'): Controller.move_forward_page,
-    ord('A'): Controller.move_start,
-    ord('E'): Controller.move_end,
-    ord('o'): Controller.toggle_insert,
-    ord('y'): Controller.redo,
-    ord('z'): Controller.undo,
-}
-
-"""
-TODO control and meta key map
-
-char/word/line/page/doc forward/backward
-del char/word forward/backward
-
-help
-goto line number
-
-@
-A   select all / or start of line
-B
-C   copy
-D   delete (meta: word)
-E   end of line
-F   find forward
-G   bell / find again
-H   backspace (meta: word)
-I
-J
-K   cut line
-L
-M   enter
-N
-O
-P
-Q
-R   find backward (or P - previous)
-S   save
-T
-U
-V   paste
-W
-X   cut
-Y   redo
-Z   undo
-[   meta (escape)
-\
-]
-^
-_
-"""
-def main_loop(stdscr):
-
-    stdscr.scrollok(False)
-    curses.curs_set(2)
-    height, width = stdscr.getmaxyx()
-    controller = Controller(doc, height, width)
-
-    top = doc.get_start()
-
-    while True:
-#        top = controller.refresh(stdscr, top)
-        top = controller.paint(stdscr, top)
-        key = stdscr.getch()
-        if controller.meta_mode:
-            if key in meta_keys:
-                fn = meta_keys[key]
-                fn(controller)
-            else:
-                curses.flash()
-            controller.meta_mode = False
-        elif key in control_keys:
-            fn = control_keys[key]
-            if fn == Controller.insert:
-                fn(controller, key)
-            else:
-                fn(controller)
-        elif 32 <= key < 127:
-            controller.insert(key)
-        else:
-            curses.flash()
-
-if __name__ == "__main__":
-    alice = open(path.join(path.dirname(__file__), '../../tests/alice1flow.asc')).read()
-    doc = PieceTable(alice)
-    doc.find_char_forward('\n')
-    print(doc.get_point())
-
-    wrapper(main_loop)

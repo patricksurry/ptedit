@@ -1,6 +1,6 @@
-import pytest
 from ptedit import piecetable
 from ptedit import location
+
 
 def test_undo():
     doc = piecetable.PieceTable('the quick brown fox')
