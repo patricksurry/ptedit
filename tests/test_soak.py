@@ -4,7 +4,8 @@ from os import path
 from ptedit import piecetable
 
 
-corpus = open(path.join(path.dirname(__file__), 'alice1flow.asc')).read()
+# use a shortish doc to ensure overlaps
+corpus = open(path.join(path.dirname(__file__), 'alice1flow.asc')).read()[:1024]
 
 
 def random_text():
@@ -14,13 +15,14 @@ def random_text():
 
 
 def randomize_point(doc: piecetable.PieceTable):
-    offset = random.randint(0, doc.length+1)
+    # use a binomial around 0 to get lots of action at the ends
+    offset = int(random.gauss(0, 128))
     doc.set_point(doc.get_start().move(offset))
 
 
 def test_soak():
     doc = piecetable.PieceTable(corpus)
-    n = 1024
+    n = 8192
     random.seed(42)
     for _ in range(n):
         match random.randint(0, 3):

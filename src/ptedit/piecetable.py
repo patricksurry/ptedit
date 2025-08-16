@@ -153,14 +153,40 @@ class PieceTable:
 
         # are we deleting between two pieces?
         before = pt.piece.prev
-        if not pt.offset:
+        if pt.offset == 0:
+            # Can we continue a previous deletion?
+            edit = self.edit_stack.peek()
+            if (
+                edit and not edit.ins
+                and edit.pre == before and edit.post == pt.piece
+                and edit.post.length > length
+            ):
+                edit.post.start += length
+                edit.post.length -= length
+                self.edit_stack.push(None)
+                self.set_point(edit.location())
+                return None
+
             pre = None
         else:
             pre = pt.piece.split(pt.offset)[0]
 
-        if not loc.offset:
+        if loc.offset == 0:
+            # Can we continue a previous deletion?
             after = loc.piece
             post = None
+
+            edit = self.edit_stack.peek()
+            if (
+                edit and not edit.ins
+                and edit.pre == pt.piece and edit.post == after
+                and edit.pre.length > length
+            ):
+                edit.pre.length -= length
+                self.edit_stack.push(None)
+                self.set_point(edit.location())
+                return None
+
         else:
             after = loc.piece.next
             post = loc.piece.split(loc.offset)[1]
@@ -186,7 +212,7 @@ class PieceTable:
                 edit.post.start += len(s)
                 edit.post.length -= len(s)
                 self.edit_stack.push(None)
-                self.set_point(Location(edit.post))
+                self.set_point(edit.location())
                 return self
 
         # delete

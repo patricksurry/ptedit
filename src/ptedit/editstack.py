@@ -62,6 +62,7 @@ class Edit:
         assert self._applied, "redo: Edit already applied"
         return self.location()
 
+
 class EditStack:
     """
     A list of edits that have been applied.
