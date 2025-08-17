@@ -10,7 +10,8 @@ def test_frame():
     alice.set_point(alice.get_start().move(595))
     pt = alice.get_point()
     win = controller.Controller(alice, 24, 72)
-    win.find_top(alice.get_end())
+    win.preferred_top = alice.get_end()     # so it won't be found
+    win.find_top()
     top = alice.get_point()
     s = location.Location.span_data(top, pt)
     assert s.startswith('the book her sister')

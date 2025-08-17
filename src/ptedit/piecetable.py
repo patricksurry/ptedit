@@ -123,39 +123,33 @@ class PieceTable:
         assert len(s) != 0, "find_forward: expected non-empty string"
 
         pt = self.get_point()
-        while pt != self.get_end():
+        match = False
+        while not match and pt != self.get_end():
             self.set_point(pt)
+            pt = pt.move(1)
             for c in s:
                 match = self.next_char() == c
                 if not match:
                     break
-            if match:
-                break
-            pt = pt.move(1)
         return self
 
     def find_backward(self, s: str) -> PieceTable:
         """
-        Find a string ending before the point, leaving the point
-        *after* the match, or at start if no match
+        Find a string that ends before the point, leaving the point
+        *after* the match, or at start if no match.
         """
         assert len(s) != 0, "find_backward: expected non-empty string"
 
+        match = self.get_point().position() <= len(s)
+        self.move_point(-len(s))
         pt = self.get_point()
-        # need special check to avoid repeatedly matching at the start
-        if pt.position() < len(s)+1:
-            self.set_point(self.get_start())
-            return self
-        pt = pt.move(-len(s)-1)
-        while True:
+        while not match and pt != self.get_start():
+            pt = pt.move(-1)
             self.set_point(pt)
             for c in s:
                 match = self.next_char() == c
                 if not match:
                     break
-            if match or pt == self.get_start():
-                break
-            pt = pt.move(-1)
         return self
 
     def insert(self, s: str) -> PieceTable:
