@@ -8,8 +8,10 @@ from .editstack import Edit, EditStack
 
 class PieceTable:
     def __init__(self, s: str=''):
-        # Create sentinel pieces at the ends of the chain
-        # These are the only Pieces that are empty
+        """
+        Create sentinel pieces at the ends of the chain
+        These are the only Pieces that are empty
+        """
         self._start = PrimaryPiece(allow_empty=True)
         self._end = PrimaryPiece(allow_empty=True)
         if s:
@@ -68,8 +70,10 @@ class PieceTable:
         return self.get_char()
 
     def find_char_forward(self, chars: str) -> PieceTable:
-        # move point before the first occurrence of a char in chars
-        # so need move_point(1) to do repeated searches
+        """
+        move point before the first occurrence of a char in chars
+        so need move_point(1) to do repeated searches
+        """
         while self.get_point() != self.get_end():
             if self.next_char() in chars:
                 self.move_point(-1)
@@ -77,8 +81,10 @@ class PieceTable:
         return self
 
     def find_not_char_forward(self, chars: str) -> PieceTable:
-        # move point before the first occurrence of a char in chars
-        # so need move_point(1) to do repeated searches
+        """
+        move point before the first occurrence of a char in chars
+        so need move_point(1) to do repeated searches
+        """
         while self.get_point() != self.get_end():
             if self.next_char() not in chars:
                 self.move_point(-1)
@@ -86,10 +92,11 @@ class PieceTable:
         return self
 
     def find_char_backward(self, chars: str) -> PieceTable:
-        # move point *after* the first occurrence of a char in chars
-        # so need move_point(-1) to do repeated searches
-        # see 9.13.4.1 Moving by Words
-
+        """
+        move point *after* the first occurrence of a char in chars
+        so need move_point(-1) to do repeated searches
+        see 9.13.4.1 Moving by Words
+        """
         while self.get_point() != self.get_start():
             if self.prev_char() in chars:
                 self.move_point(1)
@@ -97,14 +104,58 @@ class PieceTable:
         return self
 
     def find_not_char_backward(self, chars: str) -> PieceTable:
-        # move point *after* the first occurrence of a char in chars
-        # so need move_point(-1) to do repeated searches
-        # see 9.13.4.1 Moving by Words
-
+        """
+        move point *after* the first occurrence of a char in chars
+        so need move_point(-1) to do repeated searches
+        see 9.13.4.1 Moving by Words
+        """
         while self.get_point() != self.get_start():
             if self.prev_char() not in chars:
                 self.move_point(1)
                 break
+        return self
+
+    def find_forward(self, s: str) -> PieceTable:
+        """
+        Find a string at or after the point, leaving the point
+        *after* the match, or at end if no match
+        """
+        assert len(s) != 0, "find_forward: expected non-empty string"
+
+        pt = self.get_point()
+        while pt != self.get_end():
+            self.set_point(pt)
+            for c in s:
+                match = self.next_char() == c
+                if not match:
+                    break
+            if match:
+                break
+            pt = pt.move(1)
+        return self
+
+    def find_backward(self, s: str) -> PieceTable:
+        """
+        Find a string ending before the point, leaving the point
+        *after* the match, or at start if no match
+        """
+        assert len(s) != 0, "find_backward: expected non-empty string"
+
+        pt = self.get_point()
+        # need special check to avoid repeatedly matching at the start
+        if pt.position() < len(s)+1:
+            self.set_point(self.get_start())
+            return self
+        pt = pt.move(-len(s)-1)
+        while True:
+            self.set_point(pt)
+            for c in s:
+                match = self.next_char() == c
+                if not match:
+                    break
+            if match or pt == self.get_start():
+                break
+            pt = pt.move(-1)
         return self
 
     def insert(self, s: str) -> PieceTable:

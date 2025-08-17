@@ -9,13 +9,17 @@ def snippet(s, n=8):
 
 @dataclass(kw_only=True)
 class Piece:
-    """A generic piece of text"""
+    """
+    A Piece represents a span of text in the document.
+    Some pieces own data, and others point to data held elsewhere.
+    The document is a doubly linked list of Pieces.
+    """
     _id: ClassVar[int] = 0
     prev: Piece | None = None
     next: Piece | None = None
     length: int = 0
 
-    id: int = 0
+    id: int = 0             # for debugging it's useful to enumerate pieces
 
     @property
     def lines(self):
@@ -71,7 +75,7 @@ class PrimaryPiece(Piece):
     """
     A primary piece holds string data.
     Only the two sentinel pieces at the start and end
-    have empty data.
+    have no data.
     """
     data: str = ''
     allow_empty: bool = False
@@ -87,7 +91,10 @@ class PrimaryPiece(Piece):
 
 @dataclass(repr=False)
 class SecondaryPiece(Piece):
-    """A secondary piece points to data held in a primary piece"""
+    """
+    A secondary piece represents a subset of a (single) primary piece,
+    pointing to a slice of its data, i.e. source[start:][:length]
+    """
     source: PrimaryPiece
     start: int = 0
 

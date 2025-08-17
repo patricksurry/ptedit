@@ -6,10 +6,28 @@ from .location import Location
 
 @dataclass
 class Edit:
+    """
+    An edit tracks how the piece chain changes, with before/after
+    bracketing the change.  To do (or undo) the edit,
+    we swap the before.next and after.prev links from the old to new fragment
+    (or vice versa)
+                         +--\                  \----+
+                     +-->|   \ ... original ... \   | --+
+        +--------+   |   +----\                  \--+   |   +-------+
+        | before | --+                                  +-->| after |
+        +--------+   |   +-----+   +-----+   +------+   |   +-------+
+                     +-->| pre |-->| ins |-->| post | --+
+                         +-----+   +-----+   +------+
+    """
+    # The Edit stores pointers to the existing pieces before/after,
+    # as well as the original value of before.next and after.prev
+    # (i.e. the head and tail of the original fragment)
     before: Piece
     after: Piece
+
+    # The Edit contains 0-3 new pieces pre/ins/post describing the new fragment
     pre: SecondaryPiece | None = None
-    ins: PrimaryPiece | None = None
+    ins: PrimaryPiece | None = None     # for an insertion when new data is created
     post: SecondaryPiece | None = None
 
     def __post_init__(self):
