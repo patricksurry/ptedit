@@ -1,24 +1,22 @@
+# python3 -m src/ptedit [-P] filename
+
 import curses
 from curses import wrapper
-import sys
+from time import time
 import os
+import argparse
 
 from .piecetable import PieceTable
 from .controller import Controller
 from .keymap import control_keys, meta_keys
 
 
-if len(sys.argv) != 2:
-    sys.exit("Usage: python3 -m src/ptedit fname")
+def main_loop(stdscr, args):
 
+    if not os.path.exists(args.filename):
+        open(args.filename, 'w').close()
 
-def main_loop(stdscr):
-
-    fname = sys.argv[1]
-    if not os.path.exists(fname):
-        open(fname, 'w').close()
-
-    data = open(fname).read()
+    data = open(args.filename).read()
     doc = PieceTable(data)
 
     stdscr.scrollok(False)
@@ -26,11 +24,33 @@ def main_loop(stdscr):
     # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
     curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)
     height, width = stdscr.getmaxyx()
-    controller = Controller(doc, height, width, fname=fname, control_keys=control_keys, meta_keys=meta_keys)
+    controller = Controller(doc, height, width, fname=args.filename, control_keys=control_keys, meta_keys=meta_keys)
 
+    if args.perftest:
+        doc.move_point(doc.length//2)
+
+    global frames
     while controller.doc:
         controller.paint(stdscr)
-        key = stdscr.getch()
-        controller.key_handler(key)
+        frames += 1
+        if args.perftest:
+            if time() - start > 1:
+                break
+        else:
+            key = stdscr.getch()
+            controller.key_handler(key)
 
-wrapper(main_loop)
+parser = argparse.ArgumentParser(
+    prog='ptedit',
+    description='Prototype of minimal piece-table-based ascii editor',
+)
+parser.add_argument('filename')
+parser.add_argument('-P', '--perftest', action='store_true', help="Performance test")
+args = parser.parse_args()
+
+start = time()
+frames = 0
+
+wrapper(main_loop, args)
+
+print(f"Terminated after {time()-start:0.1}s, {frames} repaints")

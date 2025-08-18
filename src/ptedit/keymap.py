@@ -12,6 +12,7 @@ def ctrl(c):
 # note curses won't see all control keys since zsh is intercepting some
 # for example, to use ctrl-S/ctrl-Q (normally xon/xoff) disable flow control
 # on OS X add `stty -ixon` to your .zshrc file
+# to allow ctrl-O on OS X add `stty discard undef`
 
 # These are normal ascii key-presses that trigger editing commands
 # The normal printable characters (ascii 32-126 inclusive) insert themselves
@@ -39,6 +40,7 @@ control_keys = {
     ctrl('_'): Controller.squash,
     ctrl('S'): Controller.isearch_forward,
     ctrl('R'): Controller.isearch_backward,
+    ctrl('O'): Controller.toggle_overwrite,
 }
 
 
@@ -52,7 +54,6 @@ meta_keys = {
     ord('e'): Controller.move_forward_page,
     ord('A'): Controller.move_start,
     ord('E'): Controller.move_end,
-    ord('o'): Controller.toggle_overwrite,
     ord('s'): Controller.save,
     ord('q'): Controller.quit,
     ord('y'): Controller.redo,

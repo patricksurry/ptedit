@@ -15,7 +15,7 @@ class PieceTable:
         self._start = PrimaryPiece(allow_empty=True)
         self._end = PrimaryPiece(allow_empty=True)
         if s:
-            # any initial data should be immutable
+            # any initial data is immutable, so don't represent as an Edit
             p = PrimaryPiece(s)
             Piece.link(self._start, p)
             Piece.link(p, self._end)
@@ -55,8 +55,8 @@ class PieceTable:
 
     def get_char(self) -> str:
         """Return character after point, without moving point"""
-        p, offset = self.get_point().tuple()
-        return p.data[offset:][:1]
+        offset = self._point.offset
+        return self._point.piece.data[offset:offset+1]
 
     def next_char(self) -> str:
         """Return character after point and advance point"""
