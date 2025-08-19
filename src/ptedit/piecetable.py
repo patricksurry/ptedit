@@ -69,27 +69,29 @@ class PieceTable:
         self.move_point(-1)
         return self.get_char()
 
-    def find_char_forward(self, chars: str) -> PieceTable:
+    def find_char_forward(self, chars: str) -> bool:
         """
         move point before the first occurrence of a char in chars
         so need move_point(1) to do repeated searches
         """
-        while self.get_point() != self.get_end():
-            if self.next_char() in chars:
-                self.move_point(-1)
-                break
-        return self
+        match = False
+        while not match and self.get_point() != self.get_end():
+            match = self.next_char() in chars
+        if match:
+            self.move_point(-1)
+        return match
 
-    def find_not_char_forward(self, chars: str) -> PieceTable:
+    def find_not_char_forward(self, chars: str) -> bool:
         """
         move point before the first occurrence of a char in chars
         so need move_point(1) to do repeated searches
         """
-        while self.get_point() != self.get_end():
-            if self.next_char() not in chars:
-                self.move_point(-1)
-                break
-        return self
+        match = False
+        while not match and self.get_point() != self.get_end():
+            match = self.next_char() not in chars
+        if match:
+            self.move_point(-1)
+        return match
 
     def find_char_backward(self, chars: str) -> PieceTable:
         """
@@ -97,11 +99,12 @@ class PieceTable:
         so need move_point(-1) to do repeated searches
         see 9.13.4.1 Moving by Words
         """
-        while self.get_point() != self.get_start():
-            if self.prev_char() in chars:
-                self.move_point(1)
-                break
-        return self
+        match = False
+        while not match and self.get_point() != self.get_start():
+            match = self.prev_char() in chars
+        if match:
+            self.move_point(1)
+        return match
 
     def find_not_char_backward(self, chars: str) -> PieceTable:
         """
@@ -109,13 +112,14 @@ class PieceTable:
         so need move_point(-1) to do repeated searches
         see 9.13.4.1 Moving by Words
         """
-        while self.get_point() != self.get_start():
-            if self.prev_char() not in chars:
-                self.move_point(1)
-                break
-        return self
+        match = False
+        while match and self.get_point() != self.get_start():
+            match = self.prev_char() not in chars
+        if match:
+            self.move_point(1)
+        return match
 
-    def find_forward(self, s: str) -> PieceTable:
+    def find_forward(self, s: str) -> bool:
         """
         Find a string at or after the point, leaving the point
         *after* the match, or at end if no match
@@ -131,9 +135,9 @@ class PieceTable:
                 match = self.next_char() == c
                 if not match:
                     break
-        return self
+        return match
 
-    def find_backward(self, s: str) -> PieceTable:
+    def find_backward(self, s: str) -> bool:
         """
         Find a string that ends before the point, leaving the point
         *after* the match, or at start if no match.
@@ -150,7 +154,7 @@ class PieceTable:
                 match = self.next_char() == c
                 if not match:
                     break
-        return self
+        return match
 
     def insert(self, s: str) -> PieceTable:
         if not s:

@@ -28,20 +28,26 @@ def test_location_offset_roundtrip(offset):
 
 def test_find_char_forward():
     doc.set_point(doc.get_start().move(4))
-    assert doc.find_char_forward('fa').get_char() == 'f'
+    assert doc.find_char_forward('fa')
+    assert doc.get_char() == 'f'
     assert doc.get_point().position() == 4
     doc.move_point(1)
-    assert doc.find_char_forward('xf').get_char() == 'f'
+    assert doc.find_char_forward('xf')
+    assert doc.get_char() == 'f'
     assert doc.get_point().position() == 15
-    assert doc.find_char_forward('the').get_char() == ''
+    assert not doc.find_char_forward('the')
+    assert doc.get_char() == ''
     assert doc.get_point().position() == 18
 
 
 def test_find_char_backward():
     doc.set_point(doc.get_end())
-    assert doc.find_char_backward('f').get_char() == 'o'
+    assert doc.find_char_backward('f')
+    assert doc.get_char() == 'o'
     doc.move_point(-1)
-    assert doc.find_char_backward('f').get_char() == 'a'
+    assert doc.find_char_backward('f')
+    assert doc.get_char() == 'a'
     doc.move_point(-1)
-    assert doc.find_char_backward('f').get_char() == 't'  # failed
+    assert not doc.find_char_backward('f')
+    assert doc.get_char() == 't'  # failed
     assert doc.get_point() == doc.get_start()

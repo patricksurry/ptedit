@@ -1,14 +1,24 @@
-- [ ] if mark is not None, then highlight characters between mark&point (or vice versa).  for isearch and copy/paste
+refactor as:
+- operator with mode enum selecting keymap (not flags)
+- editor (controller) for managing the doc
+- formatter for managing output
 
-- [ ] incomplete last line behaves oddly
 
-- [ ] del word, line
+- [ ] case-sensitivity for search (lc match either, UC match only)
 
-- [ ] cut/copy/paste
+- [ ] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
+
+- [ ] end of doc stick at end of screen (or guard), not preferred row after M-E
+
+- [ ] del word, line -> clipboard
+
+- [ ] cut/copy/paste -> clipboard
 
 - [ ] goto line?
 
 - [ ] toggle line numbers?
+
+- [x] if mark is not None, then highlight characters between mark&point (or vice versa).  for isearch and copy/paste 
 
 - [x] the naive BOL routines are ridicously inefficient
 

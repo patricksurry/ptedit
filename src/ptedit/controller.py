@@ -24,6 +24,7 @@ class Glyph:
     width: int = 0
     lookahead: bool = True
 
+
 def mutator(method):
     def wrapped(self, *args):
         self.mutating()
@@ -59,7 +60,7 @@ class Controller:
         self.preferred_top = self.doc.get_point() # top-left of screen
 
         # state
-        self.mark: Location|None = None
+        self.mark: Location | None = None
         self.overwrite_mode = False
         self.meta_mode = False
         self.isearch_direction = 0      # -1 is backward, 1 is forward
@@ -77,6 +78,7 @@ class Controller:
 
     def mutating(self):
         self.dirty = True
+        self.mark = None
         self._bols = []
 
     @mutator
@@ -159,6 +161,12 @@ class Controller:
     def move_end(self):
         self.doc.set_point(self.doc.get_end())
 
+    def set_mark(self):
+        self.mark = self.doc.get_point()
+
+    def clear_mark(self):
+        self.mark = None
+
     def isearch_forward(self):
         self._isearch_trigger(1)
 
@@ -167,6 +175,7 @@ class Controller:
 
     def _isearch_quit(self, cancel=False):
         self.isearch_direction = 0
+        self.clear_mark()
         if cancel:
             self.doc.set_point(self.search_pt)
 
@@ -195,9 +204,11 @@ class Controller:
         elif self.search_text:
             # search from current point
             if self.isearch_direction == 1:
-                self.doc.find_forward(self.search_text)
+                match = self.doc.find_forward(self.search_text)
             else:
-                self.doc.find_backward(self.search_text)
+                match = self.doc.find_backward(self.search_text)
+            if match:
+                self.mark = self.doc.get_point().move(-len(self.search_text))
         else:
             # TODO recycle past text if available
             self.show_error("Empty search")
@@ -241,22 +252,25 @@ class Controller:
 
     def _bol_forward(self, max_col: int | None = None):
         """
-        Advance point from BOL to max_col or the next BOL.
-        i.e. just past a newline/whitespace/hyphen or end of doc.
+        Advance point from BOL so that it appears at max_col
+        (or earlier if the line is shorter).  If max_col is None
+        we advance the point to the next BOL. i.e. so the cursor
+        would appear at the start of the next line or at end of doc.
         """
         if max_col == 0:
             return
-        elif max_col is None:
+
+        if max_col is None:
             max_col = self.width
 
         g = self.glyph_init()
         while True:
             g = self.glyph_next(g)
-            if g.width == 0 or g.row > 0 or g.col + g.width > max_col:
+            if g.width == 0 or g.row > 0 or g.col + g.width >= max_col:
                 break
 
-        # unless we're at end, unget the char that took us past the desired location
-        if g.width > 0:
+        # if we passed max_col we need to retreat one character
+        if g.width + g.col > max_col:
             self.doc.move_point(-1)
 
     def bol_to_preferred_col(self):
@@ -272,8 +286,15 @@ class Controller:
         if pt in self._bols:
             return
 
+        for (start, end) in zip(self._bols[:-1], self._bols[1:]):
+            if Location.span_contains(pt, start, end):
+                self.doc.set_point(start)
+                return
+
+        # find a definite line break or start of doc
         self.doc.find_char_backward('\n')
         loc = self.doc.get_point()
+        # work forward until we find the point
         while loc != pt:
             prev = loc
             self.bol_to_next_bol()
@@ -377,8 +398,7 @@ class Controller:
         Move the point to the top left of the screen,
         anchoring to preferred_top if possible.
         """
-        #TODO this always treats end-of-doc as new line even when there isn't
-        # an actual newline
+        #TODO incomplete last line is handled badly here
         self.clamp_to_bol()
         for k in range(self.height):
             self.bol_to_prev_bol()
@@ -474,21 +494,23 @@ class Controller:
         """
         pt = self.doc.get_point()
         self.find_top()         # move point to show at top-left of screen
-        cursor = None           # the y,x of the point
 
         scr.clear()
 
         g = self.glyph_init()
+        markrc = None
 
         while True:
             # if we're at the point, cursor appears on next glyph
             at_point = self.doc.get_point() == pt
+            at_mark = self.doc.get_point() == self.mark
 
             g = self.glyph_next(g)
 
             if at_point:
                 cursor = (g.row, g.col)
-
+            if at_mark:
+                markrc = (g.row, g.col)
             if g.width == 0 or g.row == self.height-1:
                 break
 
@@ -510,6 +532,19 @@ class Controller:
             scr.addstr(self.height, 0, status, curses.A_REVERSE)
         except curses.error:
             pass
+
+        if self.mark and not markrc:
+            if Location.span_contains(self.mark, self.doc.get_point(), self.doc.get_end()):
+                markrc = (g.row, g.col)
+            else:
+                markrc = (0, 0)
+        if markrc and markrc != cursor:
+            (y, x), end = (markrc, cursor) if markrc < cursor else (cursor, markrc)
+            while (y,x) < end:
+                scr.chgat(y, x, 1, curses.A_STANDOUT)
+                x += 1
+                if x == self.width:
+                    (y, x) = (y+1, 0)
 
         scr.move(*cursor)
         scr.refresh()

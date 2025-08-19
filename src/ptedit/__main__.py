@@ -27,13 +27,15 @@ def main_loop(stdscr, args):
     controller = Controller(doc, height, width, fname=args.filename, control_keys=control_keys, meta_keys=meta_keys)
 
     if args.perftest:
-        doc.move_point(doc.length//2)
+        doc.set_point(doc.get_end())
 
     global frames
     while controller.doc:
         controller.paint(stdscr)
         frames += 1
         if args.perftest:
+            controller.move_backward_char()
+            controller.move_backward_line()
             if time() - start > 1:
                 break
         else:

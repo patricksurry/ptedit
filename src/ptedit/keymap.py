@@ -47,13 +47,14 @@ control_keys = {
 # These are keys entered after an initial Escape (C-[) is entered
 # Any valid ascii value can be used, e.g. a, A, C-A are all distinct options
 meta_keys = {
-    ctrl('['): Controller.toggle_meta, # escape; cxl meta-mode
+    ctrl('['): Controller.clear_mark,
     ord('a'): Controller.move_backward_page,
     ord('b'): Controller.move_backward_para,
     ord('f'): Controller.move_forward_para,
     ord('e'): Controller.move_forward_page,
     ord('A'): Controller.move_start,
     ord('E'): Controller.move_end,
+    ord('m'): Controller.set_mark,
     ord('s'): Controller.save,
     ord('q'): Controller.quit,
     ord('y'): Controller.redo,
