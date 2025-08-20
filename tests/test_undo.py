@@ -3,7 +3,7 @@ from ptedit import location
 
 
 def test_undo():
-    doc = piecetable.PieceTable('the quick brown fox')
+    doc = piecetable.Document('the quick brown fox')
     doc.set_point(doc.get_start().move(4))
     doc.insert("fastest ")
     doc.move_point(-4)

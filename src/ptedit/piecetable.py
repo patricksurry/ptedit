@@ -6,7 +6,7 @@ from .location import Location
 from .editstack import Edit, EditStack
 
 
-class PieceTable:
+class Document:
     def __init__(self, s: str=''):
         """
         Create sentinel pieces at the ends of the chain
@@ -41,11 +41,11 @@ class PieceTable:
     def get_point(self) -> Location:
         return self._point
 
-    def set_point(self, loc: Location) -> PieceTable:
+    def set_point(self, loc: Location) -> Document:
         self._point = loc
         return self
 
-    def move_point(self, delta: int) -> PieceTable:
+    def move_point(self, delta: int) -> Document:
         self._point = self._point.move(delta)
         return self
 
@@ -93,7 +93,7 @@ class PieceTable:
             self.move_point(-1)
         return match
 
-    def find_char_backward(self, chars: str) -> PieceTable:
+    def find_char_backward(self, chars: str) -> Document:
         """
         move point *after* the first occurrence of a char in chars
         so need move_point(-1) to do repeated searches
@@ -106,7 +106,7 @@ class PieceTable:
             self.move_point(1)
         return match
 
-    def find_not_char_backward(self, chars: str) -> PieceTable:
+    def find_not_char_backward(self, chars: str) -> Document:
         """
         move point *after* the first occurrence of a char in chars
         so need move_point(-1) to do repeated searches
@@ -156,7 +156,7 @@ class PieceTable:
                     break
         return match
 
-    def insert(self, s: str) -> PieceTable:
+    def insert(self, s: str) -> Document:
         if not s:
             return self
 
@@ -187,7 +187,7 @@ class PieceTable:
         self.set_point(edit.location())
         return self
 
-    def delete(self, length: int) -> PieceTable:
+    def delete(self, length: int) -> Document:
         # +length deletes to the right, -length deletes to the left
         if not length:
             return self
@@ -245,7 +245,7 @@ class PieceTable:
         self.set_point(edit.location())
         return self
 
-    def replace(self, s: str) -> PieceTable:
+    def replace(self, s: str) -> Document:
         if not s:
             return self
 
@@ -280,12 +280,12 @@ class PieceTable:
         self.set_point(edit.location())
         return self
 
-    def undo(self) -> PieceTable:
+    def undo(self) -> Document:
         if loc := self.edit_stack.undo():
             self.set_point(loc)
         return self
 
-    def redo(self) -> PieceTable:
+    def redo(self) -> Document:
         if loc := self.edit_stack.redo():
             self.set_point(loc)
         return self

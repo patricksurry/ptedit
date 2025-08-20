@@ -1,0 +1,372 @@
+# The layout engine for showing a document on screen
+
+from dataclasses import dataclass
+import curses
+
+from .piecetable import Document
+from .location import Location
+
+
+whitespace = ' \t\n'
+
+
+@dataclass
+class Screen:
+    height: int
+    width: int
+
+    def clear(self):
+        """clear the screen"""
+        ...
+
+    def refresh(self):
+        """refresh display"""
+        ...
+
+    def move(self, row: int, col: int):
+        ...
+
+    def put(self, c: int, inverse=False):
+        """put character and increment position"""
+        ...
+
+    def puts(self, s: str, highlight=False):
+        for c in s:
+            self.put(ord(c), highlight)
+
+    def highlight(self, row: int, col: int):
+        ...
+
+
+class CursesScreen(Screen):
+    def __init__(self, win: curses.window):
+        self.win = win
+        self.win.scrollok(False)
+        # the actual cursor shape is determined by the terminal, e.g. for OS X terminal
+        # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
+        curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)
+        self.height, self.width = self.win.getmaxyx()
+
+    def clear(self):
+        self.win.clear()
+
+    def refresh(self):
+        self.win.refresh()
+
+    def move(self, row: int, col: int):
+        self.win.move(row, col)
+
+    def put(self, ch: int, highlight=False):
+        self.win.addch(ch, curses.A_REVERSE if highlight else curses.A_NORMAL)
+
+    def highlight(self, row: int, col: int):
+        self.win.chgat(row, col, 1, curses.A_REVERSE)
+
+
+@dataclass
+class Glyph:
+    c: str = ''
+    row: int = 0
+    col: int = 0
+    width: int = 0
+    lookahead: bool = True
+
+
+class Renderer:
+    def __init__(
+            self,
+            doc: Document,
+            scr: Screen,
+            guard_rows=4,
+            preferred_row=0,
+            tab=8,
+        ):
+        self.scr = scr
+        self.doc = doc
+
+        self.rows = self.scr.height - 1     # one for status
+        self.cols = self.scr.width
+
+        # layout options
+        self.tab = tab
+        assert (self.cols // self.tab) * self.tab == self.cols, "tab should divide cols"
+        self.guard_rows = guard_rows
+        self.preferred_row = preferred_row or int(0.4*self.rows)
+        self.preferred_col = 0
+        self.preferred_top = self.doc.get_point() # top-left of screen
+        self.is_column_sticky = True    # sticky col for vertical navigation
+
+        self._bols: list[Location] = [] # cached beginning of line marks
+
+    def mutating(self):
+        self._bols = []
+
+    def show_error(self, msg: str):
+        #TODO save message for status bar
+        curses.flash()
+
+    def find_top(self):
+        """
+        Move the point to the top left of the screen,
+        anchoring to preferred_top if possible.
+        """
+        #TODO incomplete last line is handled badly here
+        self.clamp_to_bol()
+        for k in range(self.rows):
+            self.bol_to_prev_bol()
+            if k == self.preferred_row:
+                fallback = self.doc.get_point()
+            if self.doc.get_point() == self.preferred_top:
+                break
+
+        # found top?
+        if k < self.rows-1:
+            # too close to point?
+            while k < self.guard_rows:
+                self.bol_to_prev_bol()
+                k += 1
+
+            # found top too far from point?
+            while k > self.rows - self.guard_rows:
+                self.bol_to_next_bol()
+                k -= 1
+        else:
+            self.doc.set_point(fallback)
+
+        self.preferred_top = self.doc.get_point()
+
+    def glyph_init(self) -> Glyph:
+        pt = self.doc.get_point()
+        if not self._bols or pt != self._bols[-1]:
+            self._bols = [pt]
+        return Glyph()
+
+    def glyph_next(self, g: Glyph) -> Glyph:
+        g.c = self.doc.next_char()
+        # update from previous glyph
+        g.col += g.width
+        if g.col >= self.cols:
+            g.lookahead = True      # always safe at start of row
+            g.col = 0
+            g.row += 1
+
+        if not g.c or g.c in  ' -\t\n':
+            g.lookahead = False
+        elif not g.lookahead:
+            # not-breaking character, need to do lookahead
+            pt = self.doc.get_point()
+            available = self.cols - g.col - 1
+            while available:
+                c = self.doc.next_char()
+                if c in ' -\t\n':
+                    break
+                available -= 1
+            if available:
+                g.lookahead = True
+            else:
+                pt = pt.move(-1)    # unget the non-breaking character
+                g.c = '\n'          # send a soft break instead
+            self.doc.set_point(pt)
+
+        match g.c:
+            case '':
+                g.width = 0
+            case '\t':
+                # Nb. assumes tab divides self.cols
+                g.width = self.tab - (g.col % self.tab)
+            case '\n':
+                g.width = self.cols - g.col
+            case _:
+                g.width = 1
+
+        if not g.c or g.width + g.col == self.cols:
+            self._bols.append(self.doc.get_point())
+
+        return g
+
+    def status_line(self, pt: Location, cursor: tuple[int, int]):
+        doc_nl = self.doc.data.count('\n')
+        pt_nl = Location.span_data(self.doc.get_start(), pt).count('\n')
+#TODO editor status?
+        fname = 'todo'
+#        fname = ('*' if self.dirty else '') + f'{self.fname}'
+        status = "  ".join([
+            f" {fname}",
+            f"xy {cursor[1]},{cursor[0]}",
+            f"pos {pt.position()}/{self.doc.length}",
+            f"lns {pt_nl}/{doc_nl}",
+            f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
+            f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
+        ])
+        status += " " * (self.cols - len(status))
+        return status
+
+    def paint(self, mark: Location|None=None):
+        """
+        Paint the buffer to the screen, returning the new top-left location.
+        Leaves point unchanged.
+        """
+        pt = self.doc.get_point()
+        self.find_top()         # move point to show at top-left of screen
+
+        self.scr.clear()
+
+        g = self.glyph_init()
+        markrc = None
+
+        while True:
+            # if we're at the point, cursor appears on next glyph
+            at_point = self.doc.get_point() == pt
+            at_mark = self.doc.get_point() == mark
+
+            g = self.glyph_next(g)
+
+            if at_point:
+                cursor = (g.row, g.col)
+            if at_mark:
+                markrc = (g.row, g.col)
+            if g.width == 0 or g.row == self.rows-1:
+                break
+
+            self.scr.move(g.row, g.col)
+
+            ch = 32 if g.c in whitespace else ord(g.c)
+            for _ in range(g.width):
+                self.scr.put(ch)
+
+        # update preferred column unless this was a non-sticky cursor movement
+        if self.is_column_sticky:
+            self.preferred_col = cursor[1]
+        else:
+            self.is_column_sticky = True
+
+        status = self.status_line(pt, cursor)
+        try:
+            # ignore the error when we advance past the end of the screen
+            self.scr.move(self.rows, 0)
+            self.scr.puts(status, highlight=True)
+        except curses.error:
+            pass
+
+        if mark and not markrc:
+            if Location.span_contains(mark, self.doc.get_point(), self.doc.get_end()):
+                markrc = (g.row, g.col)
+            else:
+                markrc = (0, 0)
+        if markrc and markrc != cursor:
+            (y, x), end = (markrc, cursor) if markrc < cursor else (cursor, markrc)
+            while (y,x) < end:
+                self.scr.highlight(y, x)
+                x += 1
+                if x == self.cols:
+                    (y, x) = (y+1, 0)
+
+        self.scr.move(*cursor)
+        self.scr.refresh()
+
+        self.doc.set_point(pt)
+
+    ### Internal beginning-of-line routines
+
+    def _bol_forward(self, max_col: int | None = None):
+        """
+        Advance point from BOL so that it appears at max_col
+        (or earlier if the line is shorter).  If max_col is None
+        we advance the point to the next BOL. i.e. so the cursor
+        would appear at the start of the next line or at end of doc.
+        """
+        if max_col == 0:
+            return
+
+        if max_col is None:
+            max_col = self.cols
+
+        g = self.glyph_init()
+        while True:
+            g = self.glyph_next(g)
+            if g.width == 0 or g.row > 0 or g.col + g.width >= max_col:
+                break
+
+        # if we passed max_col we need to retreat one character
+        if g.width + g.col > max_col:
+            self.doc.move_point(-1)
+
+    def bol_to_preferred_col(self):
+        self._bol_forward(self.preferred_col)
+        self.is_column_sticky = False
+
+    def clamp_to_bol(self):
+        """
+        Move the point back to prior bol.
+        Unlike bol_to_prev_bol this is a no-op if we're already at BOL
+        """
+        pt = self.doc.get_point()
+        if pt in self._bols:
+            return
+
+        for (start, end) in zip(self._bols[:-1], self._bols[1:]):
+            if Location.span_contains(pt, start, end):
+                self.doc.set_point(start)
+                return
+
+        # find a definite line break or start of doc
+        self.doc.find_char_backward('\n')
+        loc = self.doc.get_point()
+        # work forward until we find the point
+        while loc != pt:
+            prev = loc
+            self.bol_to_next_bol()
+            loc = self.doc.get_point()
+            if Location.span_contains(pt, prev, loc):
+                self.doc.set_point(prev)
+                break
+
+    def bol_to_next_bol(self):
+        bol = self.doc.get_point()
+
+        n = len(self._bols)
+        try:
+            i = self._bols.index(bol)
+        except:
+            i = n     # force miss
+        if i+1 < n:
+            self.doc.set_point(self._bols[i+1])
+        else:
+            self._bol_forward()
+
+    def bol_to_prev_bol(self):
+        """
+        Move from BOL to the previous BOL.
+        This is a no-op at the document start.
+        """
+        bol = self.doc.get_point()
+        if bol == self.doc.get_start():
+            return
+
+        # when there's a _bols cache miss on the way backward, we
+        # end up discarding pre-calculated BOLs for the following lines.
+        # we can do extra shenanigans to presereve the old list and tack it on
+        # the end of the new one created by processing this line but the extra
+        # complexity doesn't seem worth it: in normal use we pay the higher backward
+        # cost once, and then the forward pass painting the screen primes the cache
+        # and speeds up many subsequent frames unless the user is doing a lot of
+        # long-range navigation.  Without a cache we process more than 6x
+        # the characters on the screen while rendering it; once the cache is primed
+        # that reduces to about 10-15% overhead
+        try:
+            i = self._bols.index(bol)
+        except:
+            i = 0   # force miss
+
+        if i > 0:
+            self.doc.set_point(self._bols[i-1])
+            return
+
+        self.doc.move_point(-1)
+        self.doc.find_char_backward('\n')
+        while True:
+            loc = self.doc.get_point()
+            self.bol_to_next_bol()
+            if bol == self.doc.get_point():
+                break
+        self.doc.set_point(loc)

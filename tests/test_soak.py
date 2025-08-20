@@ -14,14 +14,14 @@ def random_text():
     return corpus[src:][:k]
 
 
-def randomize_point(doc: piecetable.PieceTable):
+def randomize_point(doc: piecetable.Document):
     # use a binomial around 0 to get lots of action at the ends
     offset = int(random.gauss(0, 128))
     doc.set_point(doc.get_start().move(offset))
 
 
 def test_soak():
-    doc = piecetable.PieceTable(corpus)
+    doc = piecetable.Document(corpus)
     n = 8192
     random.seed(42)
     for _ in range(n):

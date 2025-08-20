@@ -7,7 +7,7 @@ alice = open(path.join(path.dirname(__file__), 'alice1.asc')).read()
 
 
 def test_search_forward():
-    doc = piecetable.PieceTable(alice)
+    doc = piecetable.Document(alice)
     assert doc.find_forward('Alice')
     assert doc.get_point().position() == 5
     assert doc.find_forward('Alice')
@@ -19,7 +19,7 @@ def test_search_forward():
 
 
 def test_search_backward():
-    doc = piecetable.PieceTable(alice).move_point(655)
+    doc = piecetable.Document(alice).move_point(655)
     assert doc.find_backward('Alice')
     assert doc.get_point().position() == 265
     assert doc.find_backward('Alice')

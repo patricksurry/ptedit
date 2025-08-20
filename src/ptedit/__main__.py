@@ -6,41 +6,37 @@ from time import time
 import os
 import argparse
 
-from .piecetable import PieceTable
+from .piecetable import Document
+from .editor import Editor
+from .renderer import Renderer, CursesScreen
 from .controller import Controller
-from .keymap import control_keys, meta_keys
 
 
 def main_loop(stdscr, args):
-
     if not os.path.exists(args.filename):
         open(args.filename, 'w').close()
 
     data = open(args.filename).read()
-    doc = PieceTable(data)
-
-    stdscr.scrollok(False)
-    # the actual cursor shape is determined by the terminal, e.g. for OS X terminal
-    # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
-    curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)
-    height, width = stdscr.getmaxyx()
-    controller = Controller(doc, height, width, fname=args.filename, control_keys=control_keys, meta_keys=meta_keys)
+    doc = Document(data)
+    rdr = Renderer(doc, CursesScreen(stdscr))
+    ed = Editor(doc, rdr, fname=args.filename)
+    ctrl = Controller(ed, rdr.show_error)
 
     if args.perftest:
         doc.set_point(doc.get_end())
 
     global frames
-    while controller.doc:
-        controller.paint(stdscr)
+    while ed.doc:       #TODO hack
+        rdr.paint(ed.mark)
         frames += 1
         if args.perftest:
-            controller.move_backward_char()
-            controller.move_backward_line()
+            ed.move_backward_char()
+            ed.move_backward_line()
             if time() - start > 1:
                 break
         else:
             key = stdscr.getch()
-            controller.key_handler(key)
+            ctrl.dispatch(key)
 
 parser = argparse.ArgumentParser(
     prog='ptedit',

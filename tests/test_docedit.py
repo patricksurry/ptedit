@@ -2,9 +2,9 @@ from ptedit import piecetable
 
 
 def test_str():
-    doc = piecetable.PieceTable()
+    doc = piecetable.Document()
     assert str(doc) == "|||"
-    doc = piecetable.PieceTable('ac')
+    doc = piecetable.Document('ac')
     assert str(doc) == "||ac||"
     doc.next_char()
     doc.insert('b')
@@ -12,7 +12,7 @@ def test_str():
 
 
 def test_delete_backward():
-    doc = piecetable.PieceTable('the quick brown fox')
+    doc = piecetable.Document('the quick brown fox')
     assert len(doc.edit_stack) == 0
 
     doc.move_point(9)
@@ -23,7 +23,7 @@ def test_delete_backward():
 
 
 def test_delete_forward():
-    doc = piecetable.PieceTable('the quick brown fox')
+    doc = piecetable.Document('the quick brown fox')
     assert len(doc.edit_stack) == 0
 
     doc.move_point(4)
@@ -34,7 +34,7 @@ def test_delete_forward():
 
 
 def test_insert():
-    doc = piecetable.PieceTable('the quick brown fox')
+    doc = piecetable.Document('the quick brown fox')
     assert len(doc.edit_stack) == 0
 
     # check that insert combines
@@ -46,7 +46,7 @@ def test_insert():
 
 
 def test_replace():
-    doc = piecetable.PieceTable('the quick brown fox')
+    doc = piecetable.Document('the quick brown fox')
     assert len(doc.edit_stack) == 0
 
     doc.delete(2)

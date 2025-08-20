@@ -1,7 +1,7 @@
 import pytest
 from ptedit import piecetable
 
-doc = piecetable.PieceTable('the quick brown fox')
+doc = piecetable.Document('the quick brown fox')
 doc.set_point(doc.get_start().move(4))
 doc.insert("f")
 doc.insert("astest ")

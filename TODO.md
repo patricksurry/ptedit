@@ -3,6 +3,7 @@ refactor as:
 - editor (controller) for managing the doc
 - formatter for managing output
 
+- [ ] isearch remember last; do we need direction state if separate key?
 
 - [ ] case-sensitivity for search (lc match either, UC match only)
 
@@ -43,3 +44,22 @@ from doc midpoint:  (actual 1446 char/frame)
 - before cache: ~47 fps: 443856 get_char ~ 9444/frame
 + fwd cache: ~221 fps: 358662 x get_char ~ 1622/frame
 + bkwd: ~211 fps: 341967 ~ 1620/frame
+
+"""
+other keys to map
+
+set mark C-' ' == C-@
+del char/word forward/backward
+cut line C-K
+help
+goto line number
+select all, e.g. C-A
+cut/copy/paste C-C/C-X/C-V
+find C-F/C-G/C-R or P for back
+bksp C-H
+
+C-</|  0x1c
+C-=]}  0x1d
+C->^~  0x1e
+C-?_DEL 0x1f
+"""
