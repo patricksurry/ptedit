@@ -13,11 +13,11 @@ refactor as:
 
 - [ ] del word, line -> clipboard
 
-- [ ] cut/copy/paste -> clipboard
-
 - [ ] goto line?
 
 - [ ] toggle line numbers?
+
+- [x] cut/copy/paste -> clipboard
 
 - [x] if mark is not None, then highlight characters between mark&point (or vice versa).  for isearch and copy/paste 
 

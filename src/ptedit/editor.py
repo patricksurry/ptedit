@@ -1,6 +1,3 @@
-from typing import Callable
-from dataclasses import dataclass
-
 import logging
 logging.basicConfig(filename='controller.log', filemode='w', level=logging.DEBUG)
 
@@ -8,55 +5,31 @@ from .piecetable import Document
 from .location import Location
 from .renderer import Renderer, whitespace
 
-KeyFn = Callable[['Editor'],None]
-KeyMap = dict[int, KeyFn]
-
-
-
-
-def mutator(method):
-    def wrapped(self, *args):
-        self.mutating()
-        method(self, *args)
-    return wrapped
-
 
 class Editor:
-    def __init__(self,
-            doc: Document,
-            rdr: Renderer,
-            fname='',
-        ):
+    def __init__(self, doc: Document, rdr: Renderer):
         self.doc = doc
         self.rdr = rdr
 
-        self.fname = fname
+        self.doc.watch(self.mutating)
 
         # state
         self.mark: Location | None = None
+        self.clipboard = ''
         self.overwrite_mode = False
         self.isearch_direction = 0      # -1 is backward, 1 is forward
-
-        self.dirty = False              # saved since last change?
-
-    #TODO this should be in document
-    def save(self):
-        if self.fname:
-            open(self.fname, 'w').write(self.doc.data)
-        self.dirty = False
 
     def quit(self):
         self.doc = None         # TODO flag main to exit
 
-    #TODO this should really be notified by document to listeners
-    def mutating(self):
-        self.dirty = True
-        self.mark = None
-        self.rdr.mutating()
+    def save(self):
+        self.doc.save()
 
-    @mutator
+    def mutating(self):
+        self.mark = None
+
     def squash(self):
-        self.doc = Document(self.doc.data)
+        self.doc.squash()
 
     ### Navigation commands
     def move_forward_char(self):
@@ -186,7 +159,6 @@ class Editor:
     def toggle_overwrite(self):
         self.overwrite_mode = not self.overwrite_mode
 
-    @mutator
     def insert(self, ch):
         c = chr(ch)
         if self.isearch_direction:
@@ -196,22 +168,50 @@ class Editor:
         else:
             self.doc.insert(c)
 
-    @mutator
     def delete_forward_char(self):
         self.doc.delete(1)
 
-    @mutator
     def delete_backward_char(self):
         if self.isearch_direction:
             self._isearch_delete()
         else:
             self.doc.delete(-1)
 
-    @mutator
+    def _clip(self, cut=False) -> str:
+        if not self.mark:
+            self.rdr.show_error('no mark')
+            s = ''
+        else:
+            a, b = (self.mark, self.doc.get_point())
+            #TODO some kind of a precedes b function
+            sign = -1
+            if Location.span_contains(a, b, self.doc.get_end()):
+                (a, b) = (b, a)
+                sign = 1
+
+            s = Location.span_data(a, b)
+            if cut:
+                self.doc.delete(sign * Location.span_length(a, b))
+            self.mark = None
+        return s
+
+    def copy(self):
+        self.clipboard = self._clip(cut=False)
+
+    def cut(self):
+        self.clipboard = self._clip(cut=True)
+
+    def paste(self):
+        if not self.clipboard:
+            self.rdr.show_error('empty clipboard')
+            return
+        if self.mark:
+            _ = self._clip(cut=True)
+        self.doc.insert(self.clipboard)
+
     def undo(self):
         self.doc.undo()
 
-    @mutator
     def redo(self):
         self.doc.redo()
 

@@ -12,14 +12,17 @@ from .renderer import Renderer, CursesScreen
 from .controller import Controller
 
 
+#TODO open/file/dirty should be in doc
+#TODO mutator should flag doc listeners
+#TODO editor could trigger
 def main_loop(stdscr, args):
+    # create missing file
     if not os.path.exists(args.filename):
         open(args.filename, 'w').close()
 
-    data = open(args.filename).read()
-    doc = Document(data)
+    doc = Document(fname=args.filename)
     rdr = Renderer(doc, CursesScreen(stdscr))
-    ed = Editor(doc, rdr, fname=args.filename)
+    ed = Editor(doc, rdr)
     ctrl = Controller(ed, rdr.show_error)
 
     if args.perftest:

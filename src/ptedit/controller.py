@@ -105,6 +105,9 @@ class Controller:
                 ord('m'): ed.set_mark,
                 ord('s'): ed.save,
                 ord('q'): ed.quit,
+                ord('c'): ed.copy,
+                ord('x'): ed.cut,
+                ord('v'): ed.paste,
                 ord('y'): ed.redo,
                 ord('z'): ed.undo,
             }

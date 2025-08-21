@@ -69,7 +69,6 @@ class Glyph:
     row: int = 0
     col: int = 0
     width: int = 0
-    lookahead: bool = True
 
 
 class Renderer:
@@ -97,6 +96,10 @@ class Renderer:
         self.is_column_sticky = True    # sticky col for vertical navigation
 
         self._bols: list[Location] = [] # cached beginning of line marks
+        self.glyph = Glyph()
+        self.wrap_lookahead: bool
+
+        self.doc.watch(self.mutating)
 
     def mutating(self):
         self._bols = []
@@ -135,24 +138,26 @@ class Renderer:
 
         self.preferred_top = self.doc.get_point()
 
-    def glyph_init(self) -> Glyph:
+    def bol_iter_glyphs(self):
         pt = self.doc.get_point()
         if not self._bols or pt != self._bols[-1]:
             self._bols = [pt]
-        return Glyph()
+        self.glyph = Glyph()
+        self.wrap_lookahead = True
 
-    def glyph_next(self, g: Glyph) -> Glyph:
+    def get_next_glyph(self) -> Glyph:
+        g = self.glyph
         g.c = self.doc.next_char()
         # update from previous glyph
         g.col += g.width
         if g.col >= self.cols:
-            g.lookahead = True      # always safe at start of row
+            self.wrap_lookahead = True      # always safe at start of row
             g.col = 0
             g.row += 1
 
         if not g.c or g.c in  ' -\t\n':
-            g.lookahead = False
-        elif not g.lookahead:
+            self.wrap_lookahead = False
+        elif not self.wrap_lookahead:
             # not-breaking character, need to do lookahead
             pt = self.doc.get_point()
             available = self.cols - g.col - 1
@@ -162,7 +167,7 @@ class Renderer:
                     break
                 available -= 1
             if available:
-                g.lookahead = True
+                self.wrap_lookahead = True
             else:
                 pt = pt.move(-1)    # unget the non-breaking character
                 g.c = '\n'          # send a soft break instead
@@ -211,7 +216,7 @@ class Renderer:
 
         self.scr.clear()
 
-        g = self.glyph_init()
+        self.bol_iter_glyphs()
         markrc = None
 
         while True:
@@ -219,7 +224,7 @@ class Renderer:
             at_point = self.doc.get_point() == pt
             at_mark = self.doc.get_point() == mark
 
-            g = self.glyph_next(g)
+            g = self.get_next_glyph()
 
             if at_point:
                 cursor = (g.row, g.col)
@@ -281,9 +286,9 @@ class Renderer:
         if max_col is None:
             max_col = self.cols
 
-        g = self.glyph_init()
+        self.bol_iter_glyphs()
         while True:
-            g = self.glyph_next(g)
+            g = self.get_next_glyph()
             if g.width == 0 or g.row > 0 or g.col + g.width >= max_col:
                 break
 

@@ -1,19 +1,38 @@
 
 from __future__ import annotations
+from typing import Callable
 
 from .piece import Piece, PrimaryPiece
 from .location import Location
 from .editstack import Edit, EditStack
 
 
+def mutator(method):
+    def wrapped(self, *args):
+        self.mutating()
+        method(self, *args)
+    return wrapped
+
+
+Watcher = Callable[[],None]
+
+
 class Document:
-    def __init__(self, s: str=''):
-        """
-        Create sentinel pieces at the ends of the chain
-        These are the only Pieces that are empty
-        """
+    def __init__(self, s: str='', fname: str=''):
+        self.fname = fname
+        if self.fname:
+            s = open(fname).read()
+
+        self._watchers: list[Watcher] = []
+
+        # Create sentinel pieces at the ends of the chain
+        # These are the only Pieces that are empty
         self._start = PrimaryPiece(allow_empty=True)
         self._end = PrimaryPiece(allow_empty=True)
+        self.reset(s)
+
+    @mutator
+    def reset(self, s: str):
         if s:
             # any initial data is immutable, so don't represent as an Edit
             p = PrimaryPiece(s)
@@ -26,6 +45,24 @@ class Document:
 
         # Set up our edit stack
         self.edit_stack = EditStack()
+
+        self.dirty = False
+
+    def watch(self, watcher: Watcher):
+        self._watchers.append(watcher)
+
+    def mutating(self):
+        self.dirty = True
+        for watcher in self._watchers:
+            watcher()
+
+    def squash(self):
+        self.reset(self.data)
+
+    def save(self):
+        if self.fname:
+            open(self.fname, 'w').write(self.doc.data)
+        self.dirty = False
 
     def get_start(self) -> Location:
         return Location(self._start.next)
@@ -156,6 +193,7 @@ class Document:
                     break
         return match
 
+    @mutator
     def insert(self, s: str) -> Document:
         if not s:
             return self
@@ -187,6 +225,7 @@ class Document:
         self.set_point(edit.location())
         return self
 
+    @mutator
     def delete(self, length: int) -> Document:
         # +length deletes to the right, -length deletes to the left
         if not length:
@@ -245,6 +284,7 @@ class Document:
         self.set_point(edit.location())
         return self
 
+    @mutator
     def replace(self, s: str) -> Document:
         if not s:
             return self
@@ -280,11 +320,13 @@ class Document:
         self.set_point(edit.location())
         return self
 
+    @mutator
     def undo(self) -> Document:
         if loc := self.edit_stack.undo():
             self.set_point(loc)
         return self
 
+    @mutator
     def redo(self) -> Document:
         if loc := self.edit_stack.redo():
             self.set_point(loc)
