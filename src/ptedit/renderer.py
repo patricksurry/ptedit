@@ -1,5 +1,5 @@
 # The layout engine for showing a document on screen
-
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
 import curses
 
@@ -26,11 +26,11 @@ class Screen:
     def move(self, row: int, col: int):
         ...
 
-    def put(self, c: int, inverse=False):
+    def put(self, ch: int, highlight: bool=False):
         """put character and increment position"""
         ...
 
-    def puts(self, s: str, highlight=False):
+    def puts(self, s: str, highlight: bool=False):
         for c in s:
             self.put(ord(c), highlight)
 
@@ -46,6 +46,7 @@ class CursesScreen(Screen):
         # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
         curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)
         self.height, self.width = self.win.getmaxyx()
+        assert self.height > 1 and self.width > 0
 
     def clear(self):
         self.win.clear()
@@ -56,7 +57,7 @@ class CursesScreen(Screen):
     def move(self, row: int, col: int):
         self.win.move(row, col)
 
-    def put(self, ch: int, highlight=False):
+    def put(self, ch: int, highlight: bool=False):
         self.win.addch(ch, curses.A_REVERSE if highlight else curses.A_NORMAL)
 
     def highlight(self, row: int, col: int):
@@ -76,9 +77,9 @@ class Renderer:
             self,
             doc: Document,
             scr: Screen,
-            guard_rows=4,
-            preferred_row=0,
-            tab=8,
+            guard_rows: int=4,
+            preferred_row: int=0,
+            tab: int=8,
         ):
         self.scr = scr
         self.doc = doc
@@ -99,9 +100,9 @@ class Renderer:
         self.glyph = Glyph()
         self.wrap_lookahead: bool
 
-        self.doc.watch(self.mutating)
+        self.doc.watch(self.change_handler)
 
-    def mutating(self):
+    def change_handler(self):
         self._bols = []
 
     def show_error(self, msg: str):
@@ -113,6 +114,10 @@ class Renderer:
         Move the point to the top left of the screen,
         anchoring to preferred_top if possible.
         """
+        if TYPE_CHECKING:
+            # pylance doesn't know rows > preferred_row > 0
+            k = 0
+            fallback = self.doc.get_start()
         #TODO incomplete last line is handled badly here
         self.clamp_to_bol()
         for k in range(self.rows):
@@ -190,15 +195,15 @@ class Renderer:
         return g
 
     def status_line(self, pt: Location, cursor: tuple[int, int]):
-        doc_nl = self.doc.data.count('\n')
-        pt_nl = Location.span_data(self.doc.get_start(), pt).count('\n')
-#TODO editor status?
+        doc_nl = self.doc.get_data().count('\n')
+        pt_nl = self.doc.get_data(None, pt).count('\n')
+#TODO doc status?
         fname = 'todo'
 #        fname = ('*' if self.dirty else '') + f'{self.fname}'
         status = "  ".join([
             f" {fname}",
             f"xy {cursor[1]},{cursor[0]}",
-            f"pos {pt.position()}/{self.doc.length}",
+            f"pos {pt.position()}/{len(self.doc)}",
             f"lns {pt_nl}/{doc_nl}",
             f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
             f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
@@ -218,6 +223,7 @@ class Renderer:
 
         self.bol_iter_glyphs()
         markrc = None
+        cursor = (0, 0)
 
         while True:
             # if we're at the point, cursor appears on next glyph
@@ -254,10 +260,8 @@ class Renderer:
             pass
 
         if mark and not markrc:
-            if Location.span_contains(mark, self.doc.get_point(), self.doc.get_end()):
-                markrc = (g.row, g.col)
-            else:
-                markrc = (0, 0)
+            markrc = (0, 0) if mark < pt else (g.row, g.col)
+
         if markrc and markrc != cursor:
             (y, x), end = (markrc, cursor) if markrc < cursor else (cursor, markrc)
             while (y,x) < end:
@@ -310,7 +314,7 @@ class Renderer:
             return
 
         for (start, end) in zip(self._bols[:-1], self._bols[1:]):
-            if Location.span_contains(pt, start, end):
+            if start <= pt < end:
                 self.doc.set_point(start)
                 return
 
@@ -322,7 +326,7 @@ class Renderer:
             prev = loc
             self.bol_to_next_bol()
             loc = self.doc.get_point()
-            if Location.span_contains(pt, prev, loc):
+            if prev <= pt < loc:
                 self.doc.set_point(prev)
                 break
 

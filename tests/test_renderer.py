@@ -1,4 +1,4 @@
-from ptedit import renderer, piecetable, location
+from ptedit import renderer, piecetable
 from os import path
 
 
@@ -13,7 +13,7 @@ def test_frame():
     rdr.preferred_top = alice.get_end()     # so it won't be found
     rdr.find_top()
     top = alice.get_point()
-    s = location.Location.span_data(top, pt)
+    s = alice.get_data(top, pt)
     assert s.startswith('the book her sister')
 
 

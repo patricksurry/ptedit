@@ -3,7 +3,7 @@ from typing import ClassVar
 from dataclasses import dataclass
 
 
-def snippet(s, n=8):
+def snippet(s: str, n: int=8):
     return f"'{s}'" if len(s) <= n else f"'{s[:n-2]}...'"
 
 
@@ -17,19 +17,17 @@ class Piece:
     _id: ClassVar[int] = 0
     prev: Piece | None = None
     next: Piece | None = None
-    length: int = 0
 
     id: int = 0             # for debugging it's useful to enumerate pieces
 
     @property
-    def lines(self):
-        return self.data.count('\n')
-
-    @property
-    def data(self):
+    def data(self) -> str:
         ...
 
-    def _data_ref(self) -> tuple[PrimaryPiece, int]:
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def _ref(self) -> tuple[PrimaryPiece, int]:
         ...
 
     def __post_init__(self):
@@ -44,8 +42,8 @@ class Piece:
         but are *not* linked *from* those neighbors.
         They are also not linked to each other.
         """
-        assert 0 < offset < self.length
-        src, start = self._data_ref()
+        assert 0 < offset < len(self)
+        src, start = self._ref()
         return (
             SecondaryPiece(
                 prev=self.prev,
@@ -55,7 +53,7 @@ class Piece:
             ),
             SecondaryPiece(
                 next=self.next,
-                length=self.length-offset,
+                length=len(self)-offset,
                 source=src,
                 start=start+offset
             )
@@ -67,7 +65,7 @@ class Piece:
         after.prev = before
 
     def __repr__(self):
-        return f"Piece(id={self.id}, prev={self.prev and self.prev.id}, next={self.next and self.next.id}, data[{self.length}]={snippet(self.data)})"
+        return f"Piece(id={self.id}, prev={self.prev and self.prev.id}, next={self.next and self.next.id}, data[{len(self)}]={snippet(self.data)})"
 
 
 @dataclass(repr=False)
@@ -77,15 +75,19 @@ class PrimaryPiece(Piece):
     Only the two sentinel pieces at the start and end
     have no data.
     """
-    data: str = ''
-    allow_empty: bool = False
+    def __init__(self, *, prev: Piece|None=None, next: Piece|None=None, data: str='', allow_empty: bool=False):
+        super().__init__(prev=prev, next=next)
+        assert allow_empty or data
+        self._data = data
 
-    def __post_init__(self):
-        super().__post_init__()
-        assert self.allow_empty or self.data
-        self.length = len(self.data)
+    @property
+    def data(self) -> str:
+        return self._data
 
-    def _data_ref(self) -> tuple[PrimaryPiece, int]:
+    def extend(self, s: str):
+        self._data += s
+
+    def _ref(self) -> tuple[PrimaryPiece, int]:
         return self, 0
 
 
@@ -95,12 +97,21 @@ class SecondaryPiece(Piece):
     A secondary piece represents a subset of a (single) primary piece,
     pointing to a slice of its data, i.e. source[start:][:length]
     """
-    source: PrimaryPiece
-    start: int = 0
+    def __init__(self, *, source: PrimaryPiece, length: int, start: int=0, prev: Piece|None=None, next: Piece|None=None):
+        super().__init__(prev=prev, next=next)
+        self._src = source
+        self._start = start
+        self._len = length
+        assert self._len > 0 and self._start + self._len <= len(self._src)
 
-    def _data_ref(self) -> tuple[PrimaryPiece, int]:
-        return self.source, self.start
+    def _ref(self) -> tuple[PrimaryPiece, int]:
+        return self._src, self._start
 
     @property
-    def data(self):
-        return self.source.data[self.start:][:self.length]
+    def data(self) -> str:
+        return self._src.data[self._start:][:self._len]
+
+    def trim(self, left: int=0, right: int=0):
+        self._start += left
+        self._len -= left + right
+        assert self._len > 0 and self._start + self._len <= len(self._src)

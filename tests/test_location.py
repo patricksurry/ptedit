@@ -1,5 +1,7 @@
 import pytest
 from ptedit import piecetable
+from ptedit.location import Location
+from ptedit.piece import PrimaryPiece
 
 doc = piecetable.Document('the quick brown fox')
 doc.set_point(doc.get_start().move(4))
@@ -10,19 +12,47 @@ doc.delete(9)
 
 
 def test_structure():
-    assert doc.length == 18
-    assert doc.data == "the fast brown fox"
+    assert len(doc) == 18
+    assert doc.get_data() == "the fast brown fox"
+    assert str(doc) == "||the |fast| brown fox||"
+
+
+def test_unordered():
+    p = Location(PrimaryPiece(data='foo'))
+    q = Location(PrimaryPiece(data='bar'))
+    assert not p <= q and not q <= p
+    assert p - q is None and q - p is None
+
+
+def test_ordering():
+    p0 = doc.get_start()
+    p2 = p0.move(2)
+    p3 = p0.move(3)
+    p15 = p0.move(15)
+    p18 = p0.move(18)
+
+    assert p0 == doc.get_start()
+    assert p18 == doc.get_end()
+    assert p0 < p18
+    assert p3 <= p3
+    assert p18 >= p0
+    assert p3 > p2
+    assert p0 < p15 < p18
+    assert p18 > p15 > p0
+
+    assert p15 - p2 == 13
+    assert p2 - p15 == -13
 
 
 @pytest.mark.parametrize("offset", [
     0, 1, 10, 30, 17, 18, -20, -18, -17, -1
 ])
-def test_location_offset_roundtrip(offset):
+def test_location_offset_roundtrip(offset: int):
     loc = (doc.get_start() if offset >= 0 else doc.get_end()).move(offset)
     actual = loc.position()
-    expect = max(min(offset, doc.length), -doc.length)
+    expect = max(min(offset, len(doc)), -len(doc))
     if expect < 0:
-        expect += doc.length
+        expect += len(doc)
     assert actual == expect
 
 

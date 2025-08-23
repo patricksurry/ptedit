@@ -1,7 +1,7 @@
 import logging
 logging.basicConfig(filename='controller.log', filemode='w', level=logging.DEBUG)
 
-from .piecetable import Document
+from .piecetable import Document, MatchMode
 from .location import Location
 from .renderer import Renderer, whitespace
 
@@ -11,21 +11,24 @@ class Editor:
         self.doc = doc
         self.rdr = rdr
 
-        self.doc.watch(self.mutating)
+        self.doc.watch(self.change_handler)
 
         # state
         self.mark: Location | None = None
         self.clipboard = ''
         self.overwrite_mode = False
         self.isearch_direction = 0      # -1 is backward, 1 is forward
+        # TODO cycle mode action
+        self.match_mode = MatchMode.SMART_CASE
+        self.active = True
 
     def quit(self):
-        self.doc = None         # TODO flag main to exit
+        self.active = False
 
     def save(self):
         self.doc.save()
 
-    def mutating(self):
+    def change_handler(self):
         self.mark = None
 
     def squash(self):
@@ -127,7 +130,7 @@ class Editor:
         self.search_text = self.search_text[:-1]
         self._isearch_trigger(reset=True)
 
-    def _isearch_trigger(self, direction=0, reset=False):
+    def _isearch_trigger(self, direction: int=0, reset: bool=False):
         if reset:
             self.doc.set_point(self.search_pt)
 
@@ -144,14 +147,14 @@ class Editor:
         elif self.search_text:
             # search from current point
             if self.isearch_direction == 1:
-                match = self.doc.find_forward(self.search_text)
+                match = self.doc.find_forward(self.search_text, self.match_mode)
             else:
-                match = self.doc.find_backward(self.search_text)
+                match = self.doc.find_backward(self.search_text, self.match_mode)
             if match:
                 self.mark = self.doc.get_point().move(-len(self.search_text))
         else:
             # TODO recycle past text if available
-            self.show_error("Empty search")
+            self.rdr.show_error("Empty search")
             # TODO quit isearch mode?
 
     ### Editing commands
@@ -159,7 +162,7 @@ class Editor:
     def toggle_overwrite(self):
         self.overwrite_mode = not self.overwrite_mode
 
-    def insert(self, ch):
+    def insert(self, ch: int):
         c = chr(ch)
         if self.isearch_direction:
             self._isearch_insert(c)
@@ -177,21 +180,20 @@ class Editor:
         else:
             self.doc.delete(-1)
 
-    def _clip(self, cut=False) -> str:
-        if not self.mark:
+    def _clip(self, cut: bool=False) -> str:
+        if self.mark is None:
             self.rdr.show_error('no mark')
             s = ''
         else:
             a, b = (self.mark, self.doc.get_point())
-            #TODO some kind of a precedes b function
             sign = -1
-            if Location.span_contains(a, b, self.doc.get_end()):
+            if b < a:
                 (a, b) = (b, a)
                 sign = 1
 
-            s = Location.span_data(a, b)
+            s = self.doc.get_data(a, b)
             if cut:
-                self.doc.delete(sign * Location.span_length(a, b))
+                self.doc.delete(sign * len(s))
             self.mark = None
         return s
 
@@ -208,6 +210,20 @@ class Editor:
         if self.mark:
             _ = self._clip(cut=True)
         self.doc.insert(self.clipboard)
+
+    def _clip_line(self, cut: bool=False) -> str:
+        self.rdr.clamp_to_bol()
+        self.mark = self.doc.get_point()
+        self.rdr.bol_to_next_bol()
+        return self._clip(cut)
+
+    def copy_line(self):
+        """Copy line to clipboard"""
+        self.clipboard = self._clip_line(False)
+
+    def cut_line(self):
+        """Cut line to clipboard"""
+        self.clipboard = self._clip_line(True)
 
     def undo(self):
         self.doc.undo()

@@ -1,6 +1,6 @@
 import curses
 from enum import IntEnum
-from typing import Callable
+from typing import Callable, Literal, cast
 
 from .editor import Editor
 
@@ -22,8 +22,7 @@ class KeyMode(IntEnum):
 # Normally these are generated as control keys, but you can also
 # map 8-bit ascii values (>127) if your keyboard can generate them
 
-
-def ctrl(c):
+def ctrl(c: str) -> int:
     """
     Note that control-keys are case-insenstive, i.e. shift doesn't matter.
     In fact only the lower five bits matter, so C-@ and C-space are normally equivalent.
@@ -31,15 +30,17 @@ def ctrl(c):
     return ord(c[0]) & 0b11111
 
 
-Action = int | KeyMode | Callable
+ActionFn = Callable[[], None]
+Action = KeyMode | int | ActionFn
 Actionable = None | Action | list[Action]
+ActionKey = int | Literal["fallback"] | Literal["after"]
 
 
-def actionlist(action: Actionable) -> list[Action]:
-    if isinstance(action, list):
-        return action
-    elif action is not None:
-        return [action]
+def actionlist(actionable: Actionable) -> list[Action]:
+    if isinstance(actionable, list):
+        return cast(list[Action], actionable)
+    elif actionable is not None:
+        return [actionable]
     else:
         return []
 
@@ -48,18 +49,18 @@ class Controller:
     def __init__(self, ed: Editor, errfn: Callable[[str],None]):
         self.mode = KeyMode.NORMAL
         # printable ascii keys insert themselves
-        printable = {k: k for k in range(32,128)}
+        printable = {k: k for k in range(32,127)}
         self.ed = ed
         self.errfn = errfn
-        self.keymap: list[dict[int, Action]] = [
+        self.keymap: list[dict[ActionKey, Actionable]] = [
             # KeyMode.NORMAL
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
                 curses.KEY_UP: ed.move_backward_line,
                 curses.KEY_DOWN: ed.move_forward_line,
-                curses.KEY_BACKSPACE: ed.delete_backward_char,
                 curses.KEY_ENTER: ord('\n'),  # NL
+                curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
                 127: ed.delete_backward_char,
                 ctrl('A'): ed.move_start_line,
                 ctrl('B'): ed.move_backward_word,
@@ -106,6 +107,8 @@ class Controller:
                 ord('s'): ed.save,
                 ord('q'): ed.quit,
                 ord('c'): ed.copy,
+                ord('k'): ed.cut_line,
+                ord('K'): ed.copy_line,
                 ord('x'): ed.cut,
                 ord('v'): ed.paste,
                 ord('y'): ed.redo,
@@ -131,11 +134,11 @@ class Controller:
 
         self._execute(actions)
 
-    def _execute(self, actions):
+    def _execute(self, actions: list[Action]):
         for action in actions:
             if callable(action):
                 action()
             elif isinstance(action, KeyMode):
                 self.mode = action
-            elif isinstance(action, int):
+            else:
                 self.ed.insert(action)

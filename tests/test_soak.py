@@ -1,6 +1,6 @@
 import random
 from os import path
-
+from enum import IntEnum
 from ptedit import piecetable
 
 
@@ -20,22 +20,28 @@ def randomize_point(doc: piecetable.Document):
     doc.set_point(doc.get_start().move(offset))
 
 
+class EditType(IntEnum):
+    INSERT = 0
+    DELETE = 1
+    REPLACE = 2
+
+
 def test_soak():
     doc = piecetable.Document(corpus)
     n = 8192
     random.seed(42)
     for _ in range(n):
-        match random.randint(0, 3):
-            case 0:
+        match random.choice(list(EditType)):
+            case EditType.INSERT:
                 # insert, including empty
                 randomize_point(doc)
                 doc.insert(random_text())
-            case 1:
+            case EditType.DELETE:
                 # delete fwd/bwd, including zero
                 k = random.binomialvariate(64, 0.5) - 32
                 randomize_point(doc)
                 doc.delete(k)
-            case 2:
+            case EditType.REPLACE:
                 # replace, including empty
                 randomize_point(doc)
                 doc.replace(random_text())
@@ -45,6 +51,6 @@ def test_soak():
     while doc.edit_stack.sp:
         doc.undo()
 
-    assert doc.data == corpus
+    assert doc.get_data() == corpus
 
 

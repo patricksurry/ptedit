@@ -12,10 +12,7 @@ from .renderer import Renderer, CursesScreen
 from .controller import Controller
 
 
-#TODO open/file/dirty should be in doc
-#TODO mutator should flag doc listeners
-#TODO editor could trigger
-def main_loop(stdscr, args):
+def main_loop(stdscr: curses.window, args: argparse.Namespace):
     # create missing file
     if not os.path.exists(args.filename):
         open(args.filename, 'w').close()
@@ -29,7 +26,7 @@ def main_loop(stdscr, args):
         doc.set_point(doc.get_end())
 
     global frames
-    while ed.doc:       #TODO hack
+    while ed.active:       #TODO hack
         rdr.paint(ed.mark)
         frames += 1
         if args.perftest:

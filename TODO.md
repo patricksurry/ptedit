@@ -1,11 +1,8 @@
-refactor as:
-- operator with mode enum selecting keymap (not flags)
-- editor (controller) for managing the doc
-- formatter for managing output
-
 - [ ] isearch remember last; do we need direction state if separate key?
 
-- [ ] case-sensitivity for search (lc match either, UC match only)
+- [ ] isearch_direction and trigger seem a bit of a mess
+
+- [ ] fix status bar
 
 - [ ] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
 
@@ -16,6 +13,8 @@ refactor as:
 - [ ] goto line?
 
 - [ ] toggle line numbers?
+
+- [x] case-sensitivity for search (lc match either, UC match only)
 
 - [x] cut/copy/paste -> clipboard
 

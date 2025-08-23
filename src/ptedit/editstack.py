@@ -1,12 +1,14 @@
 from __future__ import annotations
+from typing import cast
 from dataclasses import dataclass
 
 from .piece import Piece, PrimaryPiece, SecondaryPiece
 from .location import Location
 
+
 @dataclass
 class Edit:
-    """
+    r"""
     An edit tracks how the piece chain changes, with before/after
     bracketing the change.  To do (or undo) the edit,
     we swap the before.next and after.prev links from the old to new fragment
@@ -34,18 +36,20 @@ class Edit:
         # preserve the original links for undo
         self._links = (self.before.next, self.after.prev)
 
-        assert (
-            Location.span_length(Location(self.before.next), Location(self.after))
-            >= (0 if not self.pre else self.pre.length) + (0 if not self.post else self.post.length)
+        assert self.after is not None and self.before.next is not None
+        d = Location(self.after) - Location(self.before.next)
+        assert d is not None and d >= (
+            (0 if self.pre is None else len(self.pre))
+            + (0 if self.post is None else len(self.post))
         ), "Edit excluding insert is no longer than before"
 
-        pieces = list(filter(None, [
+        pieces: list[Piece] = [p for p in cast(list[Piece|None], [
             self.before,
             self.pre,
             self.ins,
             self.post,
             self.after,
-        ]))
+        ]) if p is not None]
         assert pieces, "Edit: empty!"
         # link up the new pieces
         for pair in zip(pieces[:-1], pieces[1:]):
@@ -64,10 +68,10 @@ class Edit:
         or the equivalent offset prior to after when undone
         """
         loc = Location(self.after)
-        if self.post:
+        if self.post is not None:
             # When applied this is just Location(self.post)
             # but after an undo, we need to move an equivalent length backward
-            loc = loc.move(-self.post.length)
+            loc = loc.move(-len(self.post))
         return loc
 
     def undo(self) -> Location:
@@ -89,7 +93,7 @@ class EditStack:
     A push (even with None value) truncates the list.
     """
     def __init__(self):
-        self.edits = []
+        self.edits: list[Edit] = []
         self.sp = 0         # index of next empty slot
 
     def __len__(self):
@@ -97,7 +101,7 @@ class EditStack:
 
     def push(self, edit: Edit | None) -> EditStack:
         self.edits = self.edits[:self.sp]
-        if edit:
+        if edit is not None:
             self.edits.append(edit)
         self.sp = len(self.edits)
         return self

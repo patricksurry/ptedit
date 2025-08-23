@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Self, Literal
+from typing import Self
 
 from .piece import Piece
 
@@ -12,8 +12,8 @@ class Location:
     def __post_init__(self):
         assert 0 <= self.offset, \
             f"Loc can't have negative offset {self.offset}!"
-        assert self.piece.length == 0 or self.offset < self.piece.length, \
-            f"Loc offset {self.offset} >= length {self.piece.length}"
+        assert len(self.piece) == 0 or self.offset < len(self.piece), \
+            f"Loc offset {self.offset} >= length {len(self.piece)}"
 
     def tuple(self) -> tuple[Piece, int]:
         return self.piece, self.offset
@@ -23,15 +23,15 @@ class Location:
         p, offset = self.tuple()
         while True:
             p = p.prev
-            if not p:
+            if p is None:
                 break
-            offset += p.length
+            offset += len(p)
         return offset
 
-    def chain_length(self) -> Self:
+    def chain_length(self) -> int:
         n = 0
         p = self.piece
-        while p:
+        while p is not None:
             p = p.prev
             n += 1
         return n
@@ -44,61 +44,59 @@ class Location:
         offset = self.offset + delta
         p = self.piece
         if offset > 0:
-            while p.length <= offset and p.next:
-                offset -= p.length
+            while len(p) <= offset and p.next is not None:
+                offset -= len(p)
                 p = p.next
             # did we fall off the end?
-            if not p.next:
+            if p.next is None:
                 offset = 0
         else:
-            while offset < 0 and p.prev:
+            while offset < 0 and p.prev is not None:
                 p = p.prev
-                offset += p.length
+                offset += len(p)
             # did we hit the start?
-            if not p.prev:
+            if p.prev is None:
                 offset = 0
                 p = p.next
 
-        return Location(p, offset)
+        assert p is not None        # for the type checker
+        return self.__class__(p, offset)
 
-    @staticmethod
-    def span_length(start: Self, end: Self) -> int:
-        p = start.piece
-        n = end.offset - start.offset
-        while p != end.piece:
-            n += p.length
+    def _half_sub(self, b: Self) -> int | None:
+        # return | self - b | if self >=b else None
+        p = b.piece
+        n = self.offset - b.offset
+        while p is not None and p != self.piece:
+            n += len(p)
             p = p.next
-        return n
+        return n if p is not None else None
 
-    @staticmethod
-    def span_contains(loc: Self, start: Self, end: Self) -> bool:
-        """
-        Test whether loc is in the interval [start, end)
-        """
-        if loc.piece == start.piece and loc.offset < start.offset:
-            return False
+    def __sub__(self, b: Self) -> int | None:
+        v = self._half_sub(b)
+        if v is None:
+            v = b._half_sub(self)
+            if v is not None:
+                v = -v
+        return v
 
-        if loc.piece == end.piece and loc.offset >= end.offset:
-            return False
+    def __lt__(self, b: Self):
+        p = self.piece
+        if p == b.piece:
+            return self.offset < b.offset
 
-        p = start.piece
-        while p.next:
-            if p == loc.piece:
-                return True
-            if p == end.piece:
-                break
+        # scan upwards for b
+        while p is not None and p != b.piece:
             p = p.next
+        return p is not None
 
-        return False
+    def __le__(self, b: Self):
+        return self == b or self < b
 
-    @staticmethod
-    def span_data(start: Self, end: Self) -> str:
-        p, offset = start.tuple()
-        q, q_offset = end.tuple()
-        s = ''
-        while p != q:
-            s += p.data[offset:]
-            offset = 0
-            p = p.next
-        s += p.data[offset:q_offset]
-        return s
+    def __gt__(self, b: Self):
+        return b < self
+
+    def __ge__(self, b: Self):
+        return b <= self
+
+
+
