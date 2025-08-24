@@ -4,6 +4,8 @@
 
 - [ ] fix status bar
 
+- [ ] ed.squash should remember position
+
 - [ ] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
 
 - [ ] end of doc stick at end of screen (or guard), not preferred row after M-E

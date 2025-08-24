@@ -51,13 +51,12 @@ class Location:
             if p.next is None:
                 offset = 0
         else:
-            while offset < 0 and p.prev is not None:
+            while offset < 0 and p.prev is not None and len(p.prev) != 0:
                 p = p.prev
                 offset += len(p)
             # did we hit the start?
-            if p.prev is None:
+            if offset < 0:
                 offset = 0
-                p = p.next
 
         assert p is not None        # for the type checker
         return self.__class__(p, offset)
