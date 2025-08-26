@@ -80,4 +80,4 @@ def test_find_char_backward():
     doc.move_point(-1)
     assert not doc.find_char_backward('f')
     assert doc.get_char() == 't'  # failed
-    assert doc.get_point() == doc.get_start()
+    assert doc.at_start()

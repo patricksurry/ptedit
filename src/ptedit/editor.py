@@ -42,7 +42,7 @@ class Editor:
         self.doc.find_char_backward(whitespace)
 
     def move_forward_para(self):
-        while self.doc.get_point() != self.doc.get_end():
+        while not self.doc.at_end():
             self.doc.find_char_forward('\n')
             self.doc.move_point(1)
             if self.doc.get_char() in whitespace:
@@ -51,7 +51,7 @@ class Editor:
 
     def move_backward_para(self):
         self.doc.find_not_char_backward(whitespace)
-        while self.doc.get_point() != self.doc.get_start():
+        while not self.doc.at_start():
             self.doc.find_char_backward('\n')
             if self.doc.get_char() in whitespace:
                 break

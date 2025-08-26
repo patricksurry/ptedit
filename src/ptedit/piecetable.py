@@ -91,6 +91,12 @@ class Document:
     def get_end(self) -> Location:
         return Location(self._end)
 
+    def at_start(self) -> bool:
+        return self._point.piece == self._start.next and self._point.offset == 0
+
+    def at_end(self) -> bool:
+        return self._point.piece == self._end
+
     def __len__(self) -> int:
         """count the number of characters in the document"""
         return len(self.get_data())
@@ -140,7 +146,7 @@ class Document:
         so need move_point(1) to do repeated searches
         """
         match = False
-        while not match and self.get_point() != self.get_end():
+        while not match and not self.at_end():
             match = self.next_char() in chars
         if match:
             self.move_point(-1)
@@ -152,7 +158,7 @@ class Document:
         so need move_point(1) to do repeated searches
         """
         match = False
-        while not match and self.get_point() != self.get_end():
+        while not match and not self.at_end():
             match = self.next_char() not in chars
         if match:
             self.move_point(-1)
@@ -165,7 +171,7 @@ class Document:
         see 9.13.4.1 Moving by Words
         """
         match = False
-        while not match and self.get_point() != self.get_start():
+        while not match and not self.at_start():
             match = self.prev_char() in chars
         if match:
             self.move_point(1)
@@ -178,7 +184,7 @@ class Document:
         see 9.13.4.1 Moving by Words
         """
         match = False
-        while match and self.get_point() != self.get_start():
+        while match and not self.at_start():
             match = self.prev_char() not in chars
         if match:
             self.move_point(1)

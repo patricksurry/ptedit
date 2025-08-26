@@ -116,7 +116,7 @@ class Renderer:
             # pylance doesn't know rows > preferred_row > 0
             k = 0
             fallback = self.doc.get_start()
-        #TODO incomplete last line is handled badly here
+
         self.clamp_to_bol()
         for k in range(1,self.rows+1):
             self.bol_to_prev_bol()
@@ -305,6 +305,9 @@ class Renderer:
     def bol_to_preferred_col(self):
         self._bol_forward(self.preferred_col)
         self.is_column_sticky = False
+        if self.doc.at_end():
+            # avoid weirdness with incomplete last line
+            self.preferred_col = 0
 
     def clamp_to_bol(self):
         """

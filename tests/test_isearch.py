@@ -15,7 +15,7 @@ def test_search_forward():
     assert doc.find_forward('Alice', piecetable.MatchMode.EXACT_CASE)
     assert doc.get_point().position() == 656
     assert not doc.find_forward('abracadabra', piecetable.MatchMode.EXACT_CASE)
-    assert doc.get_point() == doc.get_end()
+    assert doc.at_end()
 
 
 def test_search_backward():
@@ -25,4 +25,4 @@ def test_search_backward():
     assert doc.find_backward('Alice', piecetable.MatchMode.EXACT_CASE)
     assert doc.get_point().position() == 5
     assert doc.find_backward('Alice', piecetable.MatchMode.EXACT_CASE)
-    assert doc.get_point() == doc.get_start()
+    assert doc.at_start()

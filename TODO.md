@@ -8,7 +8,6 @@ core:
 rendering:
 
 
-
 keyboard:
 
 - [ ] backup ~ on exit dirty, need double exit if dirty?
@@ -24,10 +23,10 @@ keyboard:
 
 bugs:
 
-- [ ] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
-
 
 features:
+
+- [ ] wrap/non-wrap mode  (guard_cols, preferred left always 0)
 
 - [ ] goto line?
 
@@ -35,6 +34,8 @@ features:
 
 
 done:
+
+- [x] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
 
 - [x] fix status bar; 
 
