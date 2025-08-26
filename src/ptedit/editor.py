@@ -146,7 +146,7 @@ class Editor:
                 self.mark = self.doc.get_point().move(-len(self.search_text))
         else:
             # TODO recycle past text if available
-            self.rdr.show_error("Empty search")
+            self.rdr.show_status("Empty search", True)
             # TODO quit isearch mode?
 
     ### Editing commands
@@ -174,7 +174,7 @@ class Editor:
 
     def _clip(self, cut: bool=False) -> str:
         if self.mark is None:
-            self.rdr.show_error('no mark')
+            self.rdr.show_status('No mark', True)
             s = ''
         else:
             a, b = (self.mark, self.doc.get_point())
@@ -197,7 +197,7 @@ class Editor:
 
     def paste(self):
         if not self.clipboard:
-            self.rdr.show_error('empty clipboard')
+            self.rdr.show_status('Clipboard empty', True)
             return
         if self.mark:
             _ = self._clip(cut=True)

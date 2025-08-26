@@ -7,9 +7,6 @@ core:
 
 rendering:
 
-- [ ] fix status bar; 
-
-- [ ] status show msg
 
 
 keyboard:
@@ -38,6 +35,10 @@ features:
 
 
 done:
+
+- [x] fix status bar; 
+
+- [x] status show msg
 
 - [x] refactor mark/point inverse (if mark; inverted = mark <= top, ...)
 

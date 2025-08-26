@@ -61,7 +61,7 @@ class Controller:
 
         self.save = lambda: doc.save(fname)
 
-        self.rdr = Renderer(doc, CursesScreen(stdscr))
+        self.rdr = Renderer(doc, CursesScreen(stdscr), fname)
         self.ed = Editor(doc, self.rdr)
         self.getch = stdscr.getch
         self.active = True
@@ -168,7 +168,10 @@ class Controller:
             self._act(actionlist(keymap['fallback']))
 
         if not actions:
-            self.rdr.show_error(f'No action for key<{key}> in mode {self.mode}')
+            self.rdr.show_status(
+                f'No action for key ${key:02x} in {self.mode.name} mode',
+                True
+            )
 
         actions += actionlist(keymap.get('after'))
 

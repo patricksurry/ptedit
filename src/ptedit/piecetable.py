@@ -51,10 +51,10 @@ class Document:
         # These are the only Pieces that are empty
         self._start: Piece = PrimaryPiece(allow_empty=True)
         self._end: Piece = PrimaryPiece(allow_empty=True)
-        self.reset(s)
+        self._reset(s)
+        self.dirty = False
 
-    @mutator
-    def reset(self, s: str):
+    def _reset(self, s: str):
         if s:
             # any initial data is immutable, so don't represent as an Edit
             p = PrimaryPiece(data=s)
@@ -68,8 +68,6 @@ class Document:
         # Set up our edit stack
         self.edit_stack = EditStack()
 
-        self.dirty = False
-
     def watch(self, watcher: Watcher):
         self._watchers.append(watcher)
 
@@ -78,8 +76,9 @@ class Document:
         for watcher in self._watchers:
             watcher()
 
+    @mutator
     def squash(self):
-        self.reset(self.get_data())
+        self._reset(self.get_data())
 
     def save(self, fname: str):
         open(fname, 'w').write(self.get_data())

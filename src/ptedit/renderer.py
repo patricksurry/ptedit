@@ -23,6 +23,10 @@ class Screen:
         """refresh display"""
         ...
 
+    def alert(self):
+        """optionally alert the user, e.g. flash, bell"""
+        pass
+
     def move(self, row: int, col: int):
         ...
 
@@ -71,13 +75,14 @@ class Renderer:
             self,
             doc: Document,
             scr: Screen,
+            fname: str = '',
             guard_rows: int=3,
             preferred_row: int=0,
             tab: int=8,
         ):
         self.scr = scr
         self.doc = doc
-
+        self.fname = fname  # for status line
         self.rows = self.scr.height - 1     # one for status
         self.cols = self.scr.width
 
@@ -93,15 +98,11 @@ class Renderer:
         self._bols: list[Location] = [] # cached beginning of line marks
         self.glyph = Glyph()
         self.wrap_lookahead: bool
-
+        self.message = ''
         self.doc.watch(self.change_handler)
 
     def change_handler(self):
         self._bols = []
-
-    def show_error(self, msg: str):
-        #TODO save message for status bar
-        curses.flash()
 
     def clear_top(self):
         self.preferred_top = self.doc.get_end()
@@ -191,24 +192,31 @@ class Renderer:
 
         return g
 
-    def status_line(self, cursor: tuple[int, int]):
-        pt = self.doc.get_point()
-        doc_nl = self.doc.get_data().count('\n')
-        pt_nl = self.doc.get_data(None, pt).count('\n')
-#TODO doc status?
-        fname = 'todo'
-#        fname = ('*' if self.dirty else '') + f'{self.fname}'
-        status = "  ".join([
-            f" {fname}",
-            f"xy {cursor[1]},{cursor[0]}",
-            f"ch ${ord(self.doc.get_char() or '\0'):02x}",
-            f"pos {pt.position()}/{len(self.doc)}",
-            f"lns {pt_nl}/{doc_nl}",
-            f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
-            f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
-        ])
-        status += " " * (self.cols - len(status))
-        return status
+    def show_status(self, msg: str, warn: bool=False):
+        self.message = msg
+        if warn:
+            self.scr.alert()
+
+    def status_line(self, cursor: tuple[int, int]) -> str:
+        if self.message:
+            status = self.message
+            self.message = ''
+        else:
+            pt = self.doc.get_point()
+            doc_nl = self.doc.get_data().count('\n')
+            pt_nl = self.doc.get_data(None, pt).count('\n')
+            fname = ('*' if self.doc.dirty else '') + f'{self.fname}'
+            status = "  ".join([
+                f"{fname}",
+                f"xy {cursor[1]},{cursor[0]}",
+                f"ch ${ord(self.doc.get_char() or '\0'):02x}",
+                f"pos {pt.position()}/{len(self.doc)}",
+                f"lns {pt_nl}/{doc_nl}",
+                f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
+                f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
+            ])
+
+        return " " + status + " " * (self.cols - len(status))
 
     def paint(self, mark: Location|None=None):
         """
