@@ -1,8 +1,12 @@
 import curses
+import os
+from time import time
 from enum import IntEnum
 from typing import Callable, Literal, cast
 
+from .piecetable import Document
 from .editor import Editor
+from .renderer import Renderer, CursesScreen
 
 
 class KeyMode(IntEnum):
@@ -46,12 +50,25 @@ def actionlist(actionable: Actionable) -> list[Action]:
 
 
 class Controller:
-    def __init__(self, ed: Editor, errfn: Callable[[str],None]):
+    def __init__(self, fname: str, stdscr: curses.window):
         self.mode = KeyMode.NORMAL
+
+        # create missing file
+        if not os.path.exists(fname):
+            open(fname, 'w').close()
+
+        doc = Document(open(fname).read())
+
+        self.save = lambda: doc.save(fname)
+
+        self.rdr = Renderer(doc, CursesScreen(stdscr))
+        self.ed = Editor(doc, self.rdr)
+        self.getch = stdscr.getch
+        self.active = True
+
         # printable ascii keys insert themselves
         printable = {k: k for k in range(32,127)}
-        self.ed = ed
-        self.errfn = errfn
+        ed = self.ed
         self.keymap: list[dict[ActionKey, Actionable]] = [
             # KeyMode.NORMAL
             {
@@ -69,6 +86,7 @@ class Controller:
                 ctrl('D'): ed.delete_forward_char,
                 ctrl('I'): ord('\t'),           # tab
                 ctrl('J'): ord('\n'),           # newline
+                ctrl('L'): self.rdr.clear_top,  # redraw screen
                 ctrl('Y'): ed.redo,
                 ctrl('Z'): ed.undo,
                 ctrl('['): KeyMode.META,      # escape
@@ -104,8 +122,8 @@ class Controller:
                 ord('A'): ed.move_start,
                 ord('E'): ed.move_end,
                 ord('m'): ed.set_mark,
-                ord('s'): ed.save,
-                ord('q'): ed.quit,
+                ord('s'): self.save,
+                ord('q'): self.quit,
                 ord('c'): ed.copy,
                 ord('k'): ed.cut_line,
                 ord('K'): ed.copy_line,
@@ -116,6 +134,28 @@ class Controller:
             }
         ]
 
+    def interactive(self):
+        while self.active:
+            self.rdr.paint(self.ed.mark)
+            key = self.getch()
+            self.dispatch(key)
+
+    def quit(self):
+        self.active = False
+
+    def perftest(self, max_time: float=1.0) -> str:
+        self.ed.move_end()
+        frames = 0
+        start = time()
+
+        while time() - start < max_time:
+            self.rdr.paint(self.ed.mark)
+            frames += 1
+            self.ed.move_backward_char()
+            self.ed.move_backward_line()
+
+        return f"Repainted {frames} frames in {time()-start:0.1}s"
+
     def dispatch(self, key: int):
         """Handle an ascii keypress"""
 
@@ -125,16 +165,16 @@ class Controller:
             actions += actionlist(keymap.get(key))
             if actions or 'fallback' not in keymap:
                 break
-            self._execute(actionlist(keymap['fallback']))
+            self._act(actionlist(keymap['fallback']))
 
         if not actions:
-            self.errfn(f'No action for key<{key}> in mode {self.mode}')
+            self.rdr.show_error(f'No action for key<{key}> in mode {self.mode}')
 
         actions += actionlist(keymap.get('after'))
 
-        self._execute(actions)
+        self._act(actions)
 
-    def _execute(self, actions: list[Action]):
+    def _act(self, actions: list[Action]):
         for action in actions:
             if callable(action):
                 action()

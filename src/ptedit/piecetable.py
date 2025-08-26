@@ -44,11 +44,7 @@ Watcher = Callable[[],None]
 
 
 class Document:
-    def __init__(self, s: str='', fname: str=''):
-        self.fname = fname
-        if self.fname:
-            s = open(fname).read()
-
+    def __init__(self, s: str=''):
         self._watchers: list[Watcher] = []
 
         # Create sentinel pieces at the ends of the chain
@@ -85,9 +81,8 @@ class Document:
     def squash(self):
         self.reset(self.get_data())
 
-    def save(self):
-        if self.fname:
-            open(self.fname, 'w').write(self.get_data())
+    def save(self, fname: str):
+        open(fname, 'w').write(self.get_data())
         self.dirty = False
 
     def get_start(self) -> Location:

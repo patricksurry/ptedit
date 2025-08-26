@@ -34,9 +34,6 @@ class Screen:
         for c in s:
             self.put(ord(c), highlight)
 
-    def highlight(self, row: int, col: int):
-        ...
-
 
 class CursesScreen(Screen):
     def __init__(self, win: curses.window):
@@ -60,9 +57,6 @@ class CursesScreen(Screen):
     def put(self, ch: int, highlight: bool=False):
         self.win.addch(ch, curses.A_REVERSE if highlight else curses.A_NORMAL)
 
-    def highlight(self, row: int, col: int):
-        self.win.chgat(row, col, 1, curses.A_REVERSE)
-
 
 @dataclass
 class Glyph:
@@ -77,7 +71,7 @@ class Renderer:
             self,
             doc: Document,
             scr: Screen,
-            guard_rows: int=4,
+            guard_rows: int=3,
             preferred_row: int=0,
             tab: int=8,
         ):
@@ -109,6 +103,9 @@ class Renderer:
         #TODO save message for status bar
         curses.flash()
 
+    def clear_top(self):
+        self.preferred_top = self.doc.get_end()
+
     def find_top(self):
         """
         Move the point to the top left of the screen,
@@ -120,7 +117,7 @@ class Renderer:
             fallback = self.doc.get_start()
         #TODO incomplete last line is handled badly here
         self.clamp_to_bol()
-        for k in range(self.rows):
+        for k in range(1,self.rows+1):
             self.bol_to_prev_bol()
             if k == self.preferred_row:
                 fallback = self.doc.get_point()
@@ -128,14 +125,14 @@ class Renderer:
                 break
 
         # found top?
-        if k < self.rows-1:
+        if k < self.rows:
             # too close to point?
             while k < self.guard_rows:
                 self.bol_to_prev_bol()
                 k += 1
 
             # found top too far from point?
-            while k > self.rows - self.guard_rows:
+            while k >= self.rows - self.guard_rows:
                 self.bol_to_next_bol()
                 k -= 1
         else:
@@ -194,7 +191,8 @@ class Renderer:
 
         return g
 
-    def status_line(self, pt: Location, cursor: tuple[int, int]):
+    def status_line(self, cursor: tuple[int, int]):
+        pt = self.doc.get_point()
         doc_nl = self.doc.get_data().count('\n')
         pt_nl = self.doc.get_data(None, pt).count('\n')
 #TODO doc status?
@@ -203,6 +201,7 @@ class Renderer:
         status = "  ".join([
             f" {fname}",
             f"xy {cursor[1]},{cursor[0]}",
+            f"ch ${ord(self.doc.get_char() or '\0'):02x}",
             f"pos {pt.position()}/{len(self.doc)}",
             f"lns {pt_nl}/{doc_nl}",
             f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
@@ -222,28 +221,35 @@ class Renderer:
         self.scr.clear()
 
         self.bol_iter_glyphs()
-        markrc = None
         cursor = (0, 0)
+
+        highlight = mark is not None and mark < self.doc.get_point()
 
         while True:
             # if we're at the point, cursor appears on next glyph
+
             at_point = self.doc.get_point() == pt
-            at_mark = self.doc.get_point() == mark
+
+            if self.doc.get_point() == mark:
+                highlight = not highlight
 
             g = self.get_next_glyph()
 
             if at_point:
                 cursor = (g.row, g.col)
-            if at_mark:
-                markrc = (g.row, g.col)
-            if g.width == 0 or g.row == self.rows-1:
+                if mark:
+                    highlight = not highlight
+
+            if g.width == 0 or g.row == self.rows:
                 break
 
             self.scr.move(g.row, g.col)
 
             ch = 32 if g.c in whitespace else ord(g.c)
             for _ in range(g.width):
-                self.scr.put(ch)
+                self.scr.put(ch, highlight=highlight)
+
+        self.doc.set_point(pt)
 
         # update preferred column unless this was a non-sticky cursor movement
         if self.is_column_sticky:
@@ -251,7 +257,7 @@ class Renderer:
         else:
             self.is_column_sticky = True
 
-        status = self.status_line(pt, cursor)
+        status = self.status_line(cursor)
         try:
             # ignore the error when we advance past the end of the screen
             self.scr.move(self.rows, 0)
@@ -259,21 +265,9 @@ class Renderer:
         except curses.error:
             pass
 
-        if mark and not markrc:
-            markrc = (0, 0) if mark < pt else (g.row, g.col)
-
-        if markrc and markrc != cursor:
-            (y, x), end = (markrc, cursor) if markrc < cursor else (cursor, markrc)
-            while (y,x) < end:
-                self.scr.highlight(y, x)
-                x += 1
-                if x == self.cols:
-                    (y, x) = (y+1, 0)
-
         self.scr.move(*cursor)
         self.scr.refresh()
 
-        self.doc.set_point(pt)
 
     ### Internal beginning-of-line routines
 

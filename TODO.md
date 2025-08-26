@@ -1,20 +1,51 @@
+core:
+
+- should delete be in terms of location not offset? (special case for +/-1)
+
+- could we just track direction of mark from point easily so don't need to check?  (what about search?)
+
+
+rendering:
+
+- [ ] fix status bar; 
+
+- [ ] status show msg
+
+
+keyboard:
+
+- [ ] backup ~ on exit dirty, need double exit if dirty?
+
+- [ ] end of doc stick at end of screen (or guard), not preferred row after M-E
+
+- [ ] del or ctrl v should del marked region if any; other printables?
+
 - [ ] isearch remember last; do we need direction state if separate key?
 
 - [ ] isearch_direction and trigger seem a bit of a mess
 
-- [ ] fix status bar
 
-- [ ] ed.squash should remember position
+bugs:
 
 - [ ] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
 
-- [ ] end of doc stick at end of screen (or guard), not preferred row after M-E
 
-- [ ] del word, line -> clipboard
+features:
 
 - [ ] goto line?
 
 - [ ] toggle line numbers?
+
+
+done:
+
+- [x] refactor mark/point inverse (if mark; inverted = mark <= top, ...)
+
+- [x] ctrl-L  clear preferred top (recenter screen) - controller->renderer
+
+- [x] add char at point in hex in status, e.g. $0a
+
+- [x] ed.squash should remember position
 
 - [x] case-sensitivity for search (lc match either, UC match only)
 

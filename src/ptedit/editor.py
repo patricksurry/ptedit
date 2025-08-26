@@ -1,6 +1,3 @@
-import logging
-logging.basicConfig(filename='controller.log', filemode='w', level=logging.DEBUG)
-
 from .piecetable import Document, MatchMode
 from .location import Location
 from .renderer import Renderer, whitespace
@@ -20,19 +17,14 @@ class Editor:
         self.isearch_direction = 0      # -1 is backward, 1 is forward
         # TODO cycle mode action
         self.match_mode = MatchMode.SMART_CASE
-        self.active = True
-
-    def quit(self):
-        self.active = False
-
-    def save(self):
-        self.doc.save()
 
     def change_handler(self):
         self.mark = None
 
     def squash(self):
+        pos = self.doc.get_point().position()
         self.doc.squash()
+        self.doc.set_point(self.doc.get_start().move(pos))
 
     ### Navigation commands
     def move_forward_char(self):

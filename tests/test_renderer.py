@@ -14,7 +14,7 @@ def test_frame():
     rdr.find_top()
     top = alice.get_point()
     s = alice.get_data(top, pt)
-    assert s.startswith('the book her sister')
+    assert s.startswith('conversations in it')
 
 
 def test_wrap():

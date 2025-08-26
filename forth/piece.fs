@@ -1,3 +1,6 @@
+hex
+here .
+
 \ A piece is a string with a prev and next pointer:
 \ i.e. ( addr u prev next )
 
@@ -28,13 +31,14 @@
   -rot swap 2@ rot /string 0 r> :piece ( piece' piece'' ) 
 ;
 : piece. ( piece -- )   \ show a piece
+  cr
   [char] < emit space dup 6 + @ u. space 
   dup 4 + @ u. [char] > emit 4 spaces
   dup 2 + @ u. space 
-  2@ type cr
+  2@ type
 ;
 : pieces. ( piece -- )  \ show a list of pieces
-  cr begin
+  begin
     dup u. dup piece> swap piece. ?dup 0=
   until
 ;
@@ -82,13 +86,22 @@ then
   swap rot 2!
 ; 
 
-.s
+here .
 
 0 value doc
 0 value point
 
+: test_split
+  s" banana" 1234 5678 :piece
+  dup piece.
+  2 piece| .s
+  piece. piece.
+;
+
+test_split
+
 : test_doc
-  hex :piece0 s" bar" :piece$ s" foo" :piece$ :piece0
+  :piece0 s" bar" :piece$ s" foo" :piece$ :piece0
   dup to doc
   over pieces>< over pieces>< swap pieces><
   doc pieces.
