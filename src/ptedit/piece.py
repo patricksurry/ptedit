@@ -17,6 +17,7 @@ class Piece:
     _id: ClassVar[int] = 0
     prev: Piece | None = None
     next: Piece | None = None
+    _len: int = 0
 
     id: int = 0             # for debugging it's useful to enumerate pieces
 
@@ -25,7 +26,7 @@ class Piece:
         ...
 
     def __len__(self) -> int:
-        return len(self.data)
+        return self._len
 
     def _ref(self) -> tuple[PrimaryPiece, int]:
         ...
@@ -75,10 +76,12 @@ class PrimaryPiece(Piece):
     Only the two sentinel pieces at the start and end
     have no data.
     """
+    _data: str = ''
+
     def __init__(self, *, prev: Piece|None=None, next: Piece|None=None, data: str='', allow_empty: bool=False):
         super().__init__(prev=prev, next=next)
         assert allow_empty or data
-        self._data = data
+        self.extend(data)
 
     @property
     def data(self) -> str:
@@ -86,6 +89,7 @@ class PrimaryPiece(Piece):
 
     def extend(self, s: str):
         self._data += s
+        self._len = len(self._data)
 
     def _ref(self) -> tuple[PrimaryPiece, int]:
         return self, 0

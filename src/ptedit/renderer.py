@@ -2,6 +2,11 @@
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
 import curses
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG, filename='ptedit.log', filemode='w')
+
 
 from .piecetable import Document
 from .location import Location
@@ -16,7 +21,7 @@ class Screen:
     width: int
 
     def clear(self):
-        """clear the screen"""
+        """clear the screen and move cursor to top-left"""
         ...
 
     def refresh(self):
@@ -143,14 +148,20 @@ class Renderer:
 
     def bol_iter_glyphs(self):
         pt = self.doc.get_point()
-        if not self._bols or pt != self._bols[-1]:
+        if pt not in self._bols:
             self._bols = [pt]
+            reset = ' (reset)'
+        else:
+            reset = ''
+        logging.info(f'bol_iter_glyphs {len(self._bols)} {pt.position()}{reset}')
         self.glyph = Glyph()
         self.wrap_lookahead = True
 
     def get_next_glyph(self) -> Glyph:
         g = self.glyph
         g.c = self.doc.next_char()
+        pt = self.doc.get_point()
+
         # update from previous glyph
         g.col += g.width
         if g.col >= self.cols:
@@ -158,11 +169,10 @@ class Renderer:
             g.col = 0
             g.row += 1
 
-        if not g.c or g.c in  ' -\t\n':
+        if not g.c or g.c in ' -\t\n':
             self.wrap_lookahead = False
         elif not self.wrap_lookahead:
             # not-breaking character, need to do lookahead
-            pt = self.doc.get_point()
             available = self.cols - g.col - 1
             while available:
                 c = self.doc.next_char()
@@ -188,7 +198,9 @@ class Renderer:
                 g.width = 1
 
         if not g.c or g.width + g.col == self.cols:
-            self._bols.append(self.doc.get_point())
+            if pt not in self._bols:
+                self._bols.append(pt)
+                logging.info(f'get_next_glyph {len(self._bols)}')
 
         return g
 
@@ -223,10 +235,17 @@ class Renderer:
         Paint the buffer to the screen, returning the new top-left location.
         Leaves point unchanged.
         """
+        _n = self.doc._n_get_char_calls
+
+        logging.info(f'paint top {len(self._bols)} bol')
+
         pt = self.doc.get_point()
         self.find_top()         # move point to show at top-left of screen
 
-        self.scr.clear()
+        _n = self.doc._n_get_char_calls - _n
+        logging.info(f'paint glyphs {len(self._bols)} bol {_n} chars')
+
+        self.scr.clear()        # move cursor to 0,0
 
         self.bol_iter_glyphs()
         cursor = (0, 0)
@@ -251,8 +270,6 @@ class Renderer:
             if g.width == 0 or g.row == self.rows:
                 break
 
-            self.scr.move(g.row, g.col)
-
             ch = 32 if g.c in whitespace else ord(g.c)
             for _ in range(g.width):
                 self.scr.put(ch, highlight=highlight)
@@ -275,6 +292,9 @@ class Renderer:
 
         self.scr.move(*cursor)
         self.scr.refresh()
+
+        _n = self.doc._n_get_char_calls - _n
+        logging.info(f'paint end {len(self._bols)} bol {_n} chars')
 
 
     ### Internal beginning-of-line routines
@@ -376,6 +396,7 @@ class Renderer:
             self.doc.set_point(self._bols[i-1])
             return
 
+        logging.info(f'bol_to_prev_bol miss {len(self._bols)}')
         self.doc.move_point(-1)
         self.doc.find_char_backward('\n')
         while True:

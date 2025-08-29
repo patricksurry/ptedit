@@ -1,11 +1,18 @@
 hex
 here .
 
-\ A piece is a string with a prev and next pointer:
-\ i.e. ( addr u prev next )
+\ A piece is a string with a prev and next pointer
+\ with an 8 byte memory footprint.   Note 2! and 2@
+\ preserve memory order with the downward growing 
+\ data stack, so ( addr u ) 2@ matches the first four bytes
+\
+\   0      2      4      6
+\  +------+------+------+------+
+\  |  u   | addr | next | prev |
+\  +------+------+------+------+
 
 : :piece ( addr u prev next -- piece )
-  \ memory layout is [ u addr next prev ] so 2@ gives (addr u)
+  \ memory layout is [ u addr next prev ] so 2@ gives ( addr u )
   2swap , , , , here 8 -
 ;
 : :piece0 ( -- piece )        \ empty
@@ -31,105 +38,123 @@ here .
   -rot swap 2@ rot /string 0 r> :piece ( piece' piece'' ) 
 ;
 : piece. ( piece -- )   \ show a piece
-  cr
   [char] < emit space dup 6 + @ u. space 
   dup 4 + @ u. [char] > emit 4 spaces
   dup 2 + @ u. space 
   2@ type
 ;
-: pieces. ( piece -- )  \ show a list of pieces
+: pieces. ( piece -- )  \ show a list of pieces 
   begin
-    dup u. dup piece> swap piece. ?dup 0=
+    dup u. dup piece> swap piece. cr ?dup 0=
   until
 ;
  
-: :loc ( piece u -- loc )
-  \ memory is [ piece u ] so 2@ gives ( u piece )
-  swap , , here 4 -
-;
+\ loc is just a double word ( i piece )
+\ so we don't use an explicit constructor (2@ and 2! are fine)
+
 \ get char at loc, or 0 if piece is empty
-: loc^ ( loc -- c )  2@ piece$ ( i addr u ) if + c@ else 2drop 0 then ;
-: loc+ ( loc n -- )
-  ?dup 0= if drop exit then
-  over 2@ -rot + 
-  ( loc piece n' )
+: loc^ ( i piece -- c )  piece$ ( i addr u ) if + c@ else 2drop 0 then ;
+\ move location by n
+: loc1+ ( i piece -- i' piece' )
+  dup piece# ?dup if
+    ( i p n )
+    rot 1+ tuck = if
+      ( p i+1 )
+      drop piece> 0
+    then
+    swap
+  then 
+;
+
+: loc+ ( i piece delta -- i' piece' )
+  ?dup if 
+    rot +
+    ( piece i' )
 dup if 
   dup 0> if
     begin
       over piece# dup if   \ len(piece) > 0 ?
-        2dup u< invert     \ n' >= len(piece) ?
+        2dup u< invert     \ i' >= len(piece) ?
+        ( piece i' u f )
       else
-        swap 0             \ ( loc piece 0 n' 0 )
+        swap 0             
+        ( piece 0 i' 0 )
       then
-      ( loc piece n' u f )  
       while
       - swap piece> swap
-      ( loc piece' n'' )
+      ( piece' i'' )
     repeat
     drop
-    ( loc piece u )
+    ( piece' i' )
   else
     begin
       swap piece< swap over piece# 
-      ( loc piece< n' u )
+      ( piece< i' n )
       dup if
         + dup 0< 
-        ( loc piece< n'+u f )
+        ( piece< i'+n f )
       else 
         nip 0 
-        ( loc piece< 0 0 )
+        ( piece< 0 0 )
       then
       while
+      ( piece' i'' )
     repeat
   then
 then
-  swap rot 2!
+  then
+  swap
+  ( i' piece' )
 ; 
 
-here .
+cr here . cr
 
 0 value doc
-0 value point
 
 : test_split
   s" banana" 1234 5678 :piece
-  dup piece.
-  2 piece| .s
+  dup piece. cr
+  2 piece| .s cr
   piece. piece.
 ;
 
 test_split
+cr
 
 : test_doc
   :piece0 s" bar" :piece$ s" foo" :piece$ :piece0
   dup to doc
   over pieces>< over pieces>< swap pieces><
   doc pieces.
-  doc piece> 0 :loc to point
-  point 4 dump
+  doc piece> 4 dump
 ;
 
 test_doc
+cr
 
 : test_fwd
-  ." forward:" cr
+  ." forward: "
+  0 doc piece>  \ starting loc
   begin
-    point loc^ ?dup while
-    emit point 1 loc+
+    2dup loc^ ?dup while
+    emit loc1+
   repeat
-  point 4 dump
+  space ud.
 ;
 
 test_fwd
+cr
 
 : test_bkwd
-  ." backward:" cr
+  ." backward: "
+  0 doc piece> piece> piece>
   begin
-    point -1 loc+ 
-    point loc^ ?dup while
+    -1 loc+ 
+    2dup loc^ ?dup while
     emit
   repeat
-  point 4 dump
+  space ud.
 ;
 
 test_bkwd
+cr

@@ -53,6 +53,7 @@ class Document:
         self._end: Piece = PrimaryPiece(allow_empty=True)
         self._reset(s)
         self.dirty = False
+        self._n_get_char_calls = 0
 
     def _reset(self, s: str):
         if s:
@@ -79,10 +80,6 @@ class Document:
     @mutator
     def squash(self):
         self._reset(self.get_data())
-
-    def save(self, fname: str):
-        open(fname, 'w').write(self.get_data())
-        self.dirty = False
 
     def get_start(self) -> Location:
         assert self._start.next is not None
@@ -126,6 +123,7 @@ class Document:
 
     def get_char(self) -> str:
         """Return character after point, without moving point"""
+        self._n_get_char_calls += 1
         offset = self._point.offset
         return self._point.piece.data[offset:offset+1]
 

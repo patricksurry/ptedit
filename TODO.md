@@ -7,14 +7,28 @@ core:
 
 rendering:
 
+- logging for number of chars scanned via back & forth during each paint
+
+- with mutation in perf test, frame rate drops from 90 to 30
+
+- remember safe bol (_bols[0]) if before the start of change (change func should supply beginning of change, or just the Edit).  can measure span from _bols[0] to edit.before vs edit.pre to before, and recalc bol via position.    use this as a  safe newline to start scanning from rather than searching back repeatedly for NL.
+
+- next_glyph should keep a lookahead buffer rather than scanning back and forth.
+  be careful at start of line not to buffer everything.  
+  
+- add a test with > #cols non-breakable chars.
+
+- do we need the screen.clear() if we add padding at end of doc?
+
+- don't return '', width 0, instead ch=0, width=0 ?
+
 
 keyboard:
 
-- [ ] backup ~ on exit dirty, need double exit if dirty?
-
-- [ ] end of doc stick at end of screen (or guard), not preferred row after M-E
-
 - [ ] del or ctrl v should del marked region if any; other printables?
+      cf: emacs transient mark mode
+
+- [ ] isearch show search in status
 
 - [ ] isearch remember last; do we need direction state if separate key?
 
@@ -23,17 +37,25 @@ keyboard:
 
 bugs:
 
+- [ ] after Meta-E, the end of doc is at preferred row so half screen is wasted, rather than showing more preceding lines.
+
 
 features:
 
 - [ ] wrap/non-wrap mode  (guard_cols, preferred left always 0)
 
-- [ ] goto line?
+- [ ] ? crlf handling
 
-- [ ] toggle line numbers?
+- [ ] ? goto line key
+
+- [ ] ? toggle line numbers
 
 
 done:
+
+- [x] why did perftest get so slow?  __len__ and data properties??
+
+- [x] autosave ~ after changes and exit incl ctrl-C
 
 - [x] with incomplete last line backward-line doesn't work (presumably because preferred col is non-zero; should override if already at BOL?)
 

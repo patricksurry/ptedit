@@ -64,7 +64,8 @@ class Editor:
     def move_end_line(self):
         self.rdr.clamp_to_bol()
         self.rdr.bol_to_next_bol()
-        self.move_backward_char()
+        if not self.doc.at_end():
+            self.move_backward_char()
 
     def move_forward_line(self):
         self.rdr.clamp_to_bol()

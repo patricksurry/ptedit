@@ -4,6 +4,8 @@ from time import time
 from enum import IntEnum
 from typing import Callable, Literal, cast
 
+import logging
+
 from .piecetable import Document
 from .editor import Editor
 from .renderer import Renderer, CursesScreen
@@ -57,12 +59,13 @@ class Controller:
         if not os.path.exists(fname):
             open(fname, 'w').close()
 
-        doc = Document(open(fname).read())
+        self.fname = fname
+        self.change_count = 0
 
-        self.save = lambda: doc.save(fname)
-
-        self.rdr = Renderer(doc, CursesScreen(stdscr), fname)
-        self.ed = Editor(doc, self.rdr)
+        self.doc = Document(open(fname).read())
+        self.doc.watch(self.autosave)
+        self.rdr = Renderer(self.doc, CursesScreen(stdscr), fname)
+        self.ed = Editor(self.doc, self.rdr)
         self.getch = stdscr.getch
         self.active = True
 
@@ -137,11 +140,28 @@ class Controller:
     def interactive(self):
         while self.active:
             self.rdr.paint(self.ed.mark)
-            key = self.getch()
-            self.dispatch(key)
+            try:
+                key = self.getch()
+                logging.info(f'key ${key:02x}')
+                self.dispatch(key)
+            except KeyboardInterrupt:
+                self.quit()
 
     def quit(self):
+        self.autosave(0)
         self.active = False
+
+    def save(self, suffix: str=''):
+        open(self.fname + suffix, 'w').write(self.doc.get_data())
+        self.doc.dirty = False
+
+    def autosave(self, interval: int=10):
+        if interval:
+            self.change_count = (self.change_count + 1)%interval
+        else:
+            self.change_count = 0
+        if self.change_count == 0 and self.doc.dirty:
+            self.save('~')
 
     def perftest(self, max_time: float=1.0) -> str:
         self.ed.move_end()
@@ -151,10 +171,13 @@ class Controller:
         while time() - start < max_time:
             self.rdr.paint(self.ed.mark)
             frames += 1
-            self.ed.move_backward_char()
+            logging.info(f'frame {frames}')
+            self.ed.insert(ord('a'))
+#            self.ed.move_backward_char()
             self.ed.move_backward_line()
 
-        return f"Repainted {frames} frames in {time()-start:0.1}s"
+        cpf = self.doc._n_get_char_calls / frames
+        return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
 
     def dispatch(self, key: int):
         """Handle an ascii keypress"""
