@@ -106,8 +106,8 @@ class Renderer:
         self.message = ''
         self.doc.watch(self.change_handler)
 
-    def change_handler(self):
-        self._bols = []
+    def change_handler(self, start: Location, end: Location):
+        self.bol_rescue(start)
 
     def clear_top(self):
         self.preferred_top = self.doc.get_end()
@@ -121,6 +121,8 @@ class Renderer:
             # pylance doesn't know rows > preferred_row > 0
             k = 0
             fallback = self.doc.get_start()
+
+        self.bol_ladder(self.rows // 2)
 
         self.clamp_to_bol()
         for k in range(1,self.rows+1):
@@ -200,7 +202,6 @@ class Renderer:
         if not g.c or g.width + g.col == self.cols:
             if pt not in self._bols:
                 self._bols.append(pt)
-                logging.info(f'get_next_glyph {len(self._bols)}')
 
         return g
 
@@ -235,14 +236,14 @@ class Renderer:
         Paint the buffer to the screen, returning the new top-left location.
         Leaves point unchanged.
         """
-        _n = self.doc._n_get_char_calls
+        _n = self.doc.n_get_char_calls
 
         logging.info(f'paint top {len(self._bols)} bol')
 
         pt = self.doc.get_point()
         self.find_top()         # move point to show at top-left of screen
 
-        _n = self.doc._n_get_char_calls - _n
+        _n = self.doc.n_get_char_calls - _n
         logging.info(f'paint glyphs {len(self._bols)} bol {_n} chars')
 
         self.scr.clear()        # move cursor to 0,0
@@ -278,7 +279,7 @@ class Renderer:
 
         # update preferred column unless this was a non-sticky cursor movement
         if self.is_column_sticky:
-            self.preferred_col = cursor[1]
+            self.preferred_col = 0 if self.doc.at_end() else cursor[1]
         else:
             self.is_column_sticky = True
 
@@ -293,11 +294,39 @@ class Renderer:
         self.scr.move(*cursor)
         self.scr.refresh()
 
-        _n = self.doc._n_get_char_calls - _n
+        _n = self.doc.n_get_char_calls - _n
         logging.info(f'paint end {len(self._bols)} bol {_n} chars')
 
 
     ### Internal beginning-of-line routines
+
+    def bol_ladder(self, height: int):
+        """
+        Ensure that the point is bracketed by BoL marks,
+        with approximately height marks before the point.
+        """
+        pt = self.doc.get_point()
+        if self._bols:
+            # do we already bracket the point?
+            if self._bols[0] < pt < self._bols[-1]:
+                return
+
+            # is the existing ladder still useful?
+            if pt <= self._bols[0] or ((pt - self._bols[-1]) or 0) > height * self.cols:
+                self._bols = []
+
+        # find a reasonable starting point for the ladder
+        if not self._bols:
+            self.doc.move_point(-height * self.cols)
+            self.doc.find_char_backward('\n')
+            self._bols = [self.doc.get_point()]
+
+        # extend the ladder until we bracket the point
+        self.doc.set_point( self._bols[-1])
+        while not self.doc.at_end() and self.doc.get_point() <= pt:
+            self.bol_to_next_bol()
+
+        self.doc.set_point(pt)
 
     def _bol_forward(self, max_col: int | None = None):
         """
@@ -325,35 +354,28 @@ class Renderer:
     def bol_to_preferred_col(self):
         self._bol_forward(self.preferred_col)
         self.is_column_sticky = False
-        if self.doc.at_end():
-            # avoid weirdness with incomplete last line
-            self.preferred_col = 0
 
     def clamp_to_bol(self):
         """
         Move the point back to prior bol.
         Unlike bol_to_prev_bol this is a no-op if we're already at BOL
         """
+        if self.doc.at_start() or self.doc.at_end():
+            return
+
         pt = self.doc.get_point()
         if pt in self._bols:
             return
 
-        for (start, end) in zip(self._bols[:-1], self._bols[1:]):
+        if not self._bols or not (self._bols[0] <= pt < self._bols[-1]):
+            self.bol_ladder(self.rows // 2)
+
+        for (start, end) in zip(self._bols[-2::-1], self._bols[:0:-1]):
             if start <= pt < end:
                 self.doc.set_point(start)
                 return
 
-        # find a definite line break or start of doc
-        self.doc.find_char_backward('\n')
-        loc = self.doc.get_point()
-        # work forward until we find the point
-        while loc != pt:
-            prev = loc
-            self.bol_to_next_bol()
-            loc = self.doc.get_point()
-            if prev <= pt < loc:
-                self.doc.set_point(prev)
-                break
+        assert False, "clamp_to_bol failed"
 
     def bol_to_next_bol(self):
         bol = self.doc.get_point()
@@ -373,13 +395,12 @@ class Renderer:
         Move from BOL to the previous BOL.
         This is a no-op at the document start.
         """
-        bol = self.doc.get_point()
-        if bol == self.doc.get_start():
+        if self.doc.at_start():
             return
 
         # when there's a _bols cache miss on the way backward, we
         # end up discarding pre-calculated BOLs for the following lines.
-        # we can do extra shenanigans to presereve the old list and tack it on
+        # we could do extra shenanigans to presereve the old list and tack it on
         # the end of the new one created by processing this line but the extra
         # complexity doesn't seem worth it: in normal use we pay the higher backward
         # cost once, and then the forward pass painting the screen primes the cache
@@ -387,21 +408,56 @@ class Renderer:
         # long-range navigation.  Without a cache we process more than 6x
         # the characters on the screen while rendering it; once the cache is primed
         # that reduces to about 10-15% overhead
-        try:
-            i = self._bols.index(bol)
-        except:
-            i = 0   # force miss
 
-        if i > 0:
-            self.doc.set_point(self._bols[i-1])
+        try:
+            i = self._bols.index(self.doc.get_point())
+        except ValueError:
+            self.bol_ladder(self.rows // 2)
+            i = self._bols.index(self.doc.get_point())
+
+        self.doc.set_point(self._bols[i-1])
+
+    def bol_rescue(self, start: Location):
+        """
+        After most changes we can rescue most of the cached BoL marks.
+        We need to recreate them based on position relative to the start
+        of the document because the Location objects themselves might
+        no longer be valid as when swapped out of the piece chain.
+        We need to make sure to re-bracket the point, and don't
+        bother if the movement was too large.
+        """
+        # anything to rescue?
+        if not self._bols:
             return
 
-        logging.info(f'bol_to_prev_bol miss {len(self._bols)}')
-        self.doc.move_point(-1)
-        self.doc.find_char_backward('\n')
-        while True:
-            loc = self.doc.get_point()
-            self.bol_to_next_bol()
-            if bol == self.doc.get_point():
+        bols = self._bols
+        self._bols = []
+        last = bols.pop(0)
+        # how far is the first BoL from the start of the change?
+        pt = self.doc.get_point()
+        delta = start.position() - last.position()
+
+        # give up if start is before the first BoL or too far from point
+        if delta < 0 or delta + (pt - start or 0) > self.cols * self.rows:
+            return
+
+        # reconstruct BoL up to the start of the change
+        self._bols.append(start.move(-delta))
+        for b in bols:
+            d = (b - last)
+            assert d is not None
+            delta -= d
+            if delta < 0:
                 break
-        self.doc.set_point(loc)
+            self._bols.append(self._bols[-1].move(d))
+            last = b
+
+        logging.info(f'bol_rescue kept {len(self._bols)} bol')
+
+        # re-bracket the point
+        self.doc.set_point(self._bols[-1])
+        while self._bols[-1] < pt:
+            self.bol_to_next_bol()
+        self.doc.set_point(pt)
+
+        logging.info(f'bol_rescue bracketed point with {len(self._bols)} bol')

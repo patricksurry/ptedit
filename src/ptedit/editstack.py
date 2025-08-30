@@ -62,7 +62,13 @@ class Edit:
         self._links = links
         self._applied = not self._applied
 
-    def location(self) -> Location:
+    def get_start(self) -> Location:
+        loc = Location(self.before)
+        if self.pre is not None:
+            loc = loc.move(len(self.pre))
+        return loc
+
+    def get_end(self) -> Location:
         """
         The location of the edit is after ins and before post,
         or the equivalent offset prior to after when undone
@@ -77,12 +83,12 @@ class Edit:
     def undo(self) -> Location:
         self._swap()
         assert not self._applied, "undo: Edit already undone"
-        return self.location()
+        return self.get_end()
 
     def redo(self) -> Location:
         self._swap()
         assert self._applied, "redo: Edit already applied"
-        return self.location()
+        return self.get_end()
 
 
 class EditStack:

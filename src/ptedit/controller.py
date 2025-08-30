@@ -6,7 +6,7 @@ from typing import Callable, Literal, cast
 
 import logging
 
-from .piecetable import Document
+from .piecetable import Document, Location
 from .editor import Editor
 from .renderer import Renderer, CursesScreen
 
@@ -63,7 +63,7 @@ class Controller:
         self.change_count = 0
 
         self.doc = Document(open(fname).read())
-        self.doc.watch(self.autosave)
+        self.doc.watch(self.change_handler)
         self.rdr = Renderer(self.doc, CursesScreen(stdscr), fname)
         self.ed = Editor(self.doc, self.rdr)
         self.getch = stdscr.getch
@@ -163,6 +163,9 @@ class Controller:
         if self.change_count == 0 and self.doc.dirty:
             self.save('~')
 
+    def change_handler(self, start: Location, end: Location):
+        self.autosave()
+
     def perftest(self, max_time: float=1.0) -> str:
         self.ed.move_end()
         frames = 0
@@ -172,11 +175,12 @@ class Controller:
             self.rdr.paint(self.ed.mark)
             frames += 1
             logging.info(f'frame {frames}')
-            self.ed.insert(ord('a'))
-#            self.ed.move_backward_char()
+#            self.ed.insert(ord('a'))
+            #TODO doesn't work this way round?
+            self.ed.move_backward_char()
             self.ed.move_backward_line()
 
-        cpf = self.doc._n_get_char_calls / frames
+        cpf = self.doc.n_get_char_calls / frames
         return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
 
     def dispatch(self, key: int):

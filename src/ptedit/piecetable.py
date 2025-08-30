@@ -40,7 +40,7 @@ def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatena
     return wrapped
 
 
-Watcher = Callable[[],None]
+Watcher = Callable[[Location,Location],None]
 
 
 class Document:
@@ -53,7 +53,7 @@ class Document:
         self._end: Piece = PrimaryPiece(allow_empty=True)
         self._reset(s)
         self.dirty = False
-        self._n_get_char_calls = 0
+        self._n_get_char_calls = 0  # for performance testing
 
     def _reset(self, s: str):
         if s:
@@ -74,8 +74,13 @@ class Document:
 
     def notify_watchers(self):
         self.dirty = True
+        edit = self.edit_stack.peek()
+        if edit:
+            start, end = (edit.get_start(), edit.get_end())
+        else:
+            start, end = (self.get_start(), self.get_end())
         for watcher in self._watchers:
-            watcher()
+            watcher(start, end)
 
     @mutator
     def squash(self):
@@ -126,6 +131,10 @@ class Document:
         self._n_get_char_calls += 1
         offset = self._point.offset
         return self._point.piece.data[offset:offset+1]
+
+    @property
+    def n_get_char_calls(self) -> int:
+        return self._n_get_char_calls
 
     def next_char(self) -> str:
         """Return character after point and advance point"""
@@ -254,7 +263,7 @@ class Document:
             edit = Edit(before, after, pre=pre, ins=ins, post=post)
 
         self.edit_stack.push(None if inplace else edit)
-        self.set_point(edit.location())
+        self.set_point(edit.get_end())
         return self
 
     @mutator
@@ -283,7 +292,7 @@ class Document:
             ):
                 edit.post.trim(n, 0)
                 self.edit_stack.push(None)
-                self.set_point(edit.location())
+                self.set_point(edit.get_end())
                 return self
 
             pre = None
@@ -303,7 +312,7 @@ class Document:
             ):
                 edit.pre.trim(0, n)
                 self.edit_stack.push(None)
-                self.set_point(edit.location())
+                self.set_point(edit.get_end())
                 return self
 
         else:
@@ -313,7 +322,7 @@ class Document:
         assert before is not None and after is not None
         edit = Edit(before, after, pre=pre, post=post)
         self.edit_stack.push(edit)
-        self.set_point(edit.location())
+        self.set_point(edit.get_end())
         return self
 
     @mutator
@@ -335,7 +344,7 @@ class Document:
                 edit.ins.extend(s)
                 edit.post.trim(len(s), 0)
                 self.edit_stack.push(None)
-                self.set_point(edit.location())
+                self.set_point(edit.get_end())
                 return self
 
         # delete
@@ -352,7 +361,7 @@ class Document:
         ins = PrimaryPiece(data=s)
         edit = Edit(edit.before, edit.after, edit.pre, ins, edit.post)
         self.edit_stack.push(edit)
-        self.set_point(edit.location())
+        self.set_point(edit.get_end())
         return self
 
     @mutator

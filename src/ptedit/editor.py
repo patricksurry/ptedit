@@ -18,7 +18,7 @@ class Editor:
         # TODO cycle mode action
         self.match_mode = MatchMode.SMART_CASE
 
-    def change_handler(self):
+    def change_handler(self, start: Location, end: Location):
         self.mark = None
 
     def squash(self):
@@ -73,9 +73,14 @@ class Editor:
         self.rdr.bol_to_preferred_col()
 
     def move_backward_line(self):
+        import logging
+        logging.info(f'move_backward_line from {self.doc.get_point().position()}')
         self.rdr.clamp_to_bol()
+        logging.info(f'move_backward_line clamp {self.doc.get_point().position()}')
         self.rdr.bol_to_prev_bol()
+        logging.info(f'move_backward_line prev {self.doc.get_point().position()}')
         self.rdr.bol_to_preferred_col()
+        logging.info(f'move_backward_line tocol {self.doc.get_point().position()}')
 
     def move_forward_page(self):
         self.rdr.clamp_to_bol()
