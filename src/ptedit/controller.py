@@ -6,9 +6,12 @@ from typing import Callable, Literal, cast
 
 import logging
 
+logging.basicConfig(level=logging.DEBUG, filename='ptedit.log', filemode='w')
+
 from .piecetable import Document, Location
 from .editor import Editor
-from .renderer import Renderer, CursesScreen
+from .display import Display
+from .screen import CursesScreen
 
 
 class KeyMode(IntEnum):
@@ -64,32 +67,33 @@ class Controller:
 
         self.doc = Document(open(fname).read())
         self.doc.watch(self.change_handler)
-        self.rdr = Renderer(self.doc, CursesScreen(stdscr), fname)
-        self.ed = Editor(self.doc, self.rdr)
+        self.dpy = Display(self.doc, CursesScreen(stdscr), fname)
+        self.ed = Editor(self.doc, self.dpy)
         self.getch = stdscr.getch
         self.active = True
 
         # printable ascii keys insert themselves
         printable = {k: k for k in range(32,127)}
         ed = self.ed
+        dpy = self.dpy
         self.keymap: list[dict[ActionKey, Actionable]] = [
             # KeyMode.NORMAL
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
-                curses.KEY_UP: ed.move_backward_line,
-                curses.KEY_DOWN: ed.move_forward_line,
+                curses.KEY_UP: dpy.move_backward_line,
+                curses.KEY_DOWN: dpy.move_forward_line,
                 curses.KEY_ENTER: ord('\n'),  # NL
                 curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
                 127: ed.delete_backward_char,
-                ctrl('A'): ed.move_start_line,
+                ctrl('A'): dpy.move_start_line,
                 ctrl('B'): ed.move_backward_word,
                 ctrl('F'): ed.move_forward_word,
-                ctrl('E'): ed.move_end_line,
+                ctrl('E'): dpy.move_end_line,
                 ctrl('D'): ed.delete_forward_char,
                 ctrl('I'): ord('\t'),           # tab
                 ctrl('J'): ord('\n'),           # newline
-                ctrl('L'): self.rdr.clear_top,  # redraw screen
+                ctrl('L'): dpy.recenter,  # redraw screen
                 ctrl('Y'): ed.redo,
                 ctrl('Z'): ed.undo,
                 ctrl('['): KeyMode.META,      # escape
@@ -118,10 +122,10 @@ class Controller:
                 'after': KeyMode.NORMAL,
 
                 ctrl('['): ed.clear_mark,
-                ord('a'): ed.move_backward_page,
+                ord('a'): dpy.move_backward_page,
                 ord('b'): ed.move_backward_para,
                 ord('f'): ed.move_forward_para,
-                ord('e'): ed.move_forward_page,
+                ord('e'): dpy.move_forward_page,
                 ord('A'): ed.move_start,
                 ord('E'): ed.move_end,
                 ord('m'): ed.set_mark,
@@ -139,7 +143,7 @@ class Controller:
 
     def interactive(self):
         while self.active:
-            self.rdr.paint(self.ed.mark)
+            self.dpy.paint(self.ed.mark)
             try:
                 key = self.getch()
                 logging.info(f'key ${key:02x}')
@@ -172,13 +176,12 @@ class Controller:
         start = time()
 
         while time() - start < max_time:
-            self.rdr.paint(self.ed.mark)
+            self.dpy.paint(self.ed.mark)
             frames += 1
             logging.info(f'frame {frames}')
-#            self.ed.insert(ord('a'))
-            #TODO doesn't work this way round?
+            self.ed.insert(ord('a'))
             self.ed.move_backward_char()
-            self.ed.move_backward_line()
+            self.dpy.move_backward_line()
 
         cpf = self.doc.n_get_char_calls / frames
         return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
@@ -195,7 +198,7 @@ class Controller:
             self._act(actionlist(keymap['fallback']))
 
         if not actions:
-            self.rdr.show_status(
+            self.dpy.show_message(
                 f'No action for key ${key:02x} in {self.mode.name} mode',
                 True
             )

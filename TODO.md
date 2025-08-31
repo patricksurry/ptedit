@@ -7,11 +7,7 @@ core:
 
 rendering:
 
-- logging for number of chars scanned via back & forth during each paint
-
 - with mutation in perf test, frame rate drops from 90 to 30
-
-- remember safe bol (_bols[0]) if before the start of change (change func should supply beginning of change, or just the Edit).  can measure span from _bols[0] to edit.before vs edit.pre to before, and recalc bol via position.    use this as a  safe newline to start scanning from rather than searching back repeatedly for NL.
 
 - next_glyph should keep a lookahead buffer rather than scanning back and forth.
   be careful at start of line not to buffer everything.  
@@ -37,7 +33,7 @@ keyboard:
 
 bugs:
 
-- [ ] after Meta-E, the end of doc is at preferred row so half screen is wasted, rather than showing more preceding lines.
+- [ ] ? after Meta-E, the end of doc is at preferred row so half screen is wasted, rather than showing more preceding lines.
 
 
 features:
@@ -52,6 +48,8 @@ features:
 
 
 done:
+
+- [x] logging for number of chars scanned via back & forth during each paint
 
 - [x] why did perftest get so slow?  __len__ and data properties??
 

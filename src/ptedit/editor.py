@@ -1,14 +1,14 @@
-from .piecetable import Document, MatchMode
+from .piecetable import Document, MatchMode, whitespace
 from .location import Location
-from .renderer import Renderer, whitespace
+from .display import Display
 
 
 class Editor:
-    def __init__(self, doc: Document, rdr: Renderer):
+    def __init__(self, doc: Document, pager: Display):
         self.doc = doc
-        self.rdr = rdr
 
         self.doc.watch(self.change_handler)
+        self.pager = pager
 
         # state
         self.mark: Location | None = None
@@ -58,41 +58,7 @@ class Editor:
             self.doc.move_point(-1)
         self.doc.find_not_char_forward(whitespace)
 
-    def move_start_line(self):
-        self.rdr.clamp_to_bol()
-
-    def move_end_line(self):
-        self.rdr.clamp_to_bol()
-        self.rdr.bol_to_next_bol()
-        if not self.doc.at_end():
-            self.move_backward_char()
-
-    def move_forward_line(self):
-        self.rdr.clamp_to_bol()
-        self.rdr.bol_to_next_bol()
-        self.rdr.bol_to_preferred_col()
-
-    def move_backward_line(self):
-        import logging
-        logging.info(f'move_backward_line from {self.doc.get_point().position()}')
-        self.rdr.clamp_to_bol()
-        logging.info(f'move_backward_line clamp {self.doc.get_point().position()}')
-        self.rdr.bol_to_prev_bol()
-        logging.info(f'move_backward_line prev {self.doc.get_point().position()}')
-        self.rdr.bol_to_preferred_col()
-        logging.info(f'move_backward_line tocol {self.doc.get_point().position()}')
-
-    def move_forward_page(self):
-        self.rdr.clamp_to_bol()
-        for _ in range(self.rdr.rows):
-            self.rdr.bol_to_next_bol()
-        self.rdr.bol_to_preferred_col()
-
-    def move_backward_page(self):
-        self.rdr.clamp_to_bol()
-        for _ in range(self.rdr.rows):
-            self.rdr.bol_to_prev_bol()
-        self.rdr.bol_to_preferred_col()
+    # Nb. line-oriented commands are implemented by renderer
 
     def move_start(self):
         self.doc.set_point(self.doc.get_start())
@@ -152,7 +118,7 @@ class Editor:
                 self.mark = self.doc.get_point().move(-len(self.search_text))
         else:
             # TODO recycle past text if available
-            self.rdr.show_status("Empty search", True)
+            self.pager.show_message("Empty search", True)
             # TODO quit isearch mode?
 
     ### Editing commands
@@ -180,7 +146,7 @@ class Editor:
 
     def _clip(self, cut: bool=False) -> str:
         if self.mark is None:
-            self.rdr.show_status('No mark', True)
+            self.pager.show_message('No mark', True)
             s = ''
         else:
             a, b = (self.mark, self.doc.get_point())
@@ -203,16 +169,16 @@ class Editor:
 
     def paste(self):
         if not self.clipboard:
-            self.rdr.show_status('Clipboard empty', True)
+            self.pager.show_message('Clipboard empty', True)
             return
         if self.mark:
             _ = self._clip(cut=True)
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
-        self.rdr.clamp_to_bol()
+        self.pager.move_start_line()
         self.mark = self.doc.get_point()
-        self.rdr.bol_to_next_bol()
+        self.pager.move_end_line()
         return self._clip(cut)
 
     def copy_line(self):

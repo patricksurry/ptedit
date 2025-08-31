@@ -8,6 +8,9 @@ from .location import Location
 from .editstack import Edit, EditStack
 
 
+whitespace = ' \t\n'
+
+
 class MatchMode(Enum):
     EXACT_CASE = 0          # exact match
     IGNORE_CASE = 1         # ignore letter case
