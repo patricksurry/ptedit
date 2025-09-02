@@ -20,8 +20,8 @@ def test_structure():
 def test_unordered():
     p = Location(PrimaryPiece(data='foo'))
     q = Location(PrimaryPiece(data='bar'))
-    assert not p <= q and not q <= p
-    assert p - q is None and q - p is None
+    assert not p.is_at_or_before(q) and not p.is_at_or_after(q) and not q.is_at_or_before(p) and not q.is_at_or_after(p)
+    assert p.distance_after(q) is None and p.distance_before(q) is None and q.distance_after(p) is None and q.distance_before(p) is None
 
 
 def test_ordering():
@@ -33,15 +33,17 @@ def test_ordering():
 
     assert p0 == doc.get_start()
     assert p18 == doc.get_end()
-    assert p0 < p18
-    assert p3 <= p3
-    assert p18 >= p0
-    assert p3 > p2
-    assert p0 < p15 < p18
-    assert p18 > p15 > p0
+    assert p0.is_at_or_before(p18)
+    assert p3.is_at_or_before(p3) and p3.is_at_or_after(p3)
+    assert p18.is_at_or_after(p0)
+    assert p3.is_at_or_after(p2)
+    assert p0.is_at_or_before(p15) and p18.is_at_or_after(p15)
+    assert p15.is_at_or_before(p18) and p15.is_at_or_after(p0)
 
-    assert p15 - p2 == 13
-    assert p2 - p15 == -13
+    assert p15.distance_after(p2) == 13
+    assert p2.distance_before(p15) == 13
+    assert p15.distance_after(p0) == 15
+    assert p15.distance_before(p18) == 3
 
 
 @pytest.mark.parametrize("offset", [

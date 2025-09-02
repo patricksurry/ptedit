@@ -29,6 +29,7 @@ class Location:
         return offset
 
     def chain_length(self) -> int:
+        """Return number of pieces before start (status only)"""
         n = 0
         p = self.piece
         while p is not None:
@@ -61,41 +62,47 @@ class Location:
         assert p is not None        # for the type checker
         return self.__class__(p, offset)
 
-    def _half_sub(self, b: Self) -> int | None:
-        # return | self - b | if self >=b else None
-        p = b.piece
-        n = self.offset - b.offset
-        while p is not None and p != self.piece:
+    """
+    Since pieces *mostly* form a doubly linked list, and always do so
+    in the active document, it's tempting to define comparison operators.
+    However we often have side chains due to Edits which point
+    back into the main document chain, meaning that
+    before and after relationships are not necessarily symmetric.
+    For example after editing the chain A <-> B <-> C
+    we might end up with A <-> D <-> E <-> C and a side chain A <- B -> C
+    Here B is after A but A is *not* before B, and vice versa for C.
+    And D and B are neither before or after each other.
+    So instead we define before and after separately.
+    """
+
+    def distance_before(self, other: Self) -> int | None:
+        """if self is at or before other, returns positive distance, else None"""
+        p = self.piece
+        n = other.offset - self.offset
+        while p is not None and p != other.piece:
             n += len(p)
             p = p.next
-        return n if p is not None else None
+        return n if p is not None and n >= 0 else None
 
-    def __sub__(self, b: Self) -> int | None:
-        v = self._half_sub(b)
-        if v is None:
-            v = b._half_sub(self)
-            if v is not None:
-                v = -v
-        return v
+    def is_at_or_before(self, other: Self) -> bool:
+        """return true if our next links lead to other"""
+        return self.distance_before(other) is not None
 
-    def __lt__(self, b: Self):
+    def distance_after(self, other: Self) -> int | None:
+        """if self is at or after other, return positive distance, else None"""
         p = self.piece
-        if p == b.piece:
-            return self.offset < b.offset
+        n = self.offset - other.offset
+        while p != other.piece:
+            p = p.prev
+            if p is None:
+                break
+            n += len(p)
+        return n if p is not None and n >= 0 else None
 
-        # scan upwards for b
-        while p is not None and p != b.piece:
-            p = p.next
-        return p is not None
+    def is_at_or_after(self, other: Self) -> bool:
+        """return true if our prev links lead to other"""
+        return self.distance_after(other) is not None
 
-    def __le__(self, b: Self):
-        return self == b or self < b
-
-    def __gt__(self, b: Self):
-        return b < self
-
-    def __ge__(self, b: Self):
-        return b <= self
-
-
-
+    def within(self, start: Self, end: Self) -> bool:
+        """return true if self in [start, end)"""
+        return self.is_at_or_after(start) and self.is_at_or_before(end) and self != end

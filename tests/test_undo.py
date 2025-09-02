@@ -9,7 +9,8 @@ def test_undo():
     doc.delete(9)
 
     doc.undo()
-    assert doc.get_start() < doc.get_point() < doc.get_end()
+    pt = doc.get_point()
+    assert pt.is_at_or_after(doc.get_start()) and pt.is_at_or_before(doc.get_end())
 
     assert len(doc) == 18 + 9
     assert doc.get_data() == "the fastest quick brown fox"

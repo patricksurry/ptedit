@@ -151,7 +151,7 @@ class Editor:
         else:
             a, b = (self.mark, self.doc.get_point())
             sign = -1
-            if b < a:
+            if b.is_at_or_before(a):
                 (a, b) = (b, a)
                 sign = 1
 

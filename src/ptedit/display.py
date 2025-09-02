@@ -155,7 +155,7 @@ class Display:
         g = self.fmt.iter_glyphs()
         cursor = (0, 0)
 
-        highlight = mark is not None and mark < self.doc.get_point()
+        highlight = mark is not None and mark.position() < self.doc.get_point().position()
 
         while True:
             # if we're at the point, cursor appears on next glyph

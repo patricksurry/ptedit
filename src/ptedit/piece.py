@@ -66,7 +66,7 @@ class Piece:
         after.prev = before
 
     def __repr__(self):
-        return f"Piece(id={self.id}, prev={self.prev and self.prev.id}, next={self.next and self.next.id}, data[{len(self)}]={snippet(self.data)})"
+        return f"Piece(id={self.id}, prev={None if self.prev is None else self.prev.id}, next={None if self.next is None else self.next.id}, data[{len(self)}]={snippet(self.data)})"
 
 
 @dataclass(repr=False)

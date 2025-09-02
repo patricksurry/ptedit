@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections import deque
 import logging
 
 from .location import Location
@@ -13,12 +14,16 @@ class Glyph:
     width: int = 0
 
 
+class Ladder(deque[Location]):
+    def __init__(self, locs: list[Location]=[]):
+        super().__init__(locs, maxlen=48)
+
+
 class Formatter:
     def __init__(self, doc: Document, cols: int, rungs: int, tab: int=4):
         self.doc = doc
 
         assert (cols // tab) * tab == cols, "tab should divide cols"
-
 
         self.cols = cols
         self.rungs = rungs
@@ -27,7 +32,7 @@ class Formatter:
         self.preferred_col = 0
         self.is_column_sticky = True    # sticky col for vertical navigation
 
-        self.bol_ladder: list[Location] = [] # cached beginning of line marks
+        self.bol_ladder = Ladder()      # cached beginning of line marks
         self.glyph = Glyph()
         self.wrap_lookahead: bool
 
@@ -37,6 +42,8 @@ class Formatter:
     def set_preferred_col(self, col: int):
         # update preferred column unless this was a non-sticky cursor movement
         if self.is_column_sticky:
+            # treat doc-end as BoL at col 0 even if missing trailing newline
+            # otherwise backward-line gets stuck there
             self.preferred_col = 0 if self.doc.at_end() else col
         else:
             self.is_column_sticky = True
@@ -55,13 +62,17 @@ class Formatter:
         if self.doc.at_start() or self.doc.at_end() or pt in self.bol_ladder:
             return
 
-        if not self.bol_ladder or not (self.bol_ladder[0] <= pt < self.bol_ladder[-1]):
+        if not self.bol_ladder or not pt.within(self.bol_ladder[0],self.bol_ladder[-1]):
             self.ladder_point()
 
-        # point is strictly bracketed, so find correct rung
-        for (start, end) in zip(self.bol_ladder[-2::-1], self.bol_ladder[:0:-1]):
-            if start <= pt < end:
-                self.doc.set_point(start)
+        # point is strictly bracketed, just find correct rung
+        top = self.bol_ladder[0]
+        assert pt.is_at_or_after(top)
+        for bol in reversed(self.bol_ladder):  #TODO could skip first
+            dbol, dpt = bol.distance_after(top), pt.distance_after(top)
+            assert dbol is not None and dpt is not None
+            if dbol <= dpt:
+                self.doc.set_point(bol)
                 return
 
         assert False, "clamp_to_bol failed"
@@ -115,7 +126,7 @@ class Formatter:
     def iter_glyphs(self):
         pt = self.doc.get_point()
         if pt not in self.bol_ladder:
-            self.bol_ladder = [pt]
+            self.bol_ladder = Ladder([pt])
             logging.info(f'iter_glyphs reset to [{pt.position()}]')
         self.wrap_lookahead = True
         return Glyph()
@@ -176,28 +187,28 @@ class Formatter:
         if self.bol_ladder:
             # do we already bracket the point?
             if (
-                (self.bol_ladder[0] < pt or (self.doc.at_start() and self.bol_ladder[0] == pt))
-                and (pt < self.bol_ladder[-1] or (self.doc.at_end() and self.bol_ladder[-1] == pt))
+                self.bol_ladder[0].is_at_or_before(pt) and (self.bol_ladder[0] != pt or self.doc.at_start())
+                and (pt.is_at_or_before(self.bol_ladder[-1]) and (self.bol_ladder[-1] != pt or self.doc.at_end()))
             ):
                 return
 
             # is the existing ladder still useful?
-            if pt <= self.bol_ladder[0] or ((pt - self.bol_ladder[-1]) or 0) > self.rungs * self.cols:
-                self.bol_ladder = []
+            if pt.is_at_or_before(self.bol_ladder[0]) or (pt.distance_after(self.bol_ladder[-1]) or 1e6) > self.rungs * self.cols:
+                self.bol_ladder = Ladder()
 
         # find a reasonable starting point for the ladder
         if not self.bol_ladder:
             self.doc.move_point(-self.rungs * self.cols)
             self.doc.find_char_backward('\n')
-            self.bol_ladder = [self.doc.get_point()]
+            self.bol_ladder = Ladder([self.doc.get_point()])
 
         # extend the ladder until we bracket the point
-        self.doc.set_point( self.bol_ladder[-1])
-        while not self.doc.at_end() and self.doc.get_point() <= pt:
+        self.doc.set_point(self.bol_ladder[-1])
+        while not self.doc.at_end() and self.doc.get_point().is_at_or_before(pt):
             self.bol_to_next_bol()
 
-        assert self.bol_ladder[0] < pt or (self.doc.at_start() and self.bol_ladder[0] == pt)
-        assert pt < self.bol_ladder[-1] or (self.doc.at_end() and self.bol_ladder[-1] == pt)
+        assert self.bol_ladder[0].is_at_or_before(pt) or (self.doc.at_start() and self.bol_ladder[0] == pt)
+        assert pt.is_at_or_before(self.bol_ladder[-1]) or (self.doc.at_end() and self.bol_ladder[-1] == pt)
 
         self.doc.set_point(pt)
 
@@ -239,12 +250,12 @@ class Formatter:
             return
 
         bols = self.bol_ladder
-        self.bol_ladder = []
+        self.bol_ladder = Ladder()
         logging.info(f'rescue_ladder {len(self.bol_ladder)} bol, first/last/edit/pt {bols[0].position()}/{bols[-1].position()}/{start.position()}/{self.doc.get_point().position()}')
 
         # give up if start is before the first BoL or too far from point
         if (
-            start.position() < bols[0].position()
+            start.position() < bols[0].position() + self.cols
             or bols[-1].position() + self.cols * self.rungs < start.position()
         ):
             return
@@ -252,14 +263,29 @@ class Formatter:
         # reconstruct BoL up to the start of the change
         # use position relative to start
         # how far is the first BoL from the start of the change?
-        prev = bols.pop(0)
+        for i,b in enumerate(bols):
+            logging.info(f"ladder {i}: {b} {b.position()}")
+        prev = bols.popleft()
         delta = start.position() - prev.position()
         self.bol_ladder.append(start.move(-delta))
         for b in bols:
-            d = (b - prev)
-            assert d is not None
+            d = b.distance_after(prev)
+            if d is None:
+                logging.info(f"{b} ancestors:")
+                p = b.piece
+                while p is not None:
+                    p = p.prev
+                    logging.info(p)
+                logging.info(f"{prev} ancestors:")
+                p = prev.piece
+                while p is not None:
+                    p = p.prev
+                    logging.info(p)
+
+            assert d is not None, f"failed! {b} - {prev} => {d}"
             delta -= d
-            if delta < 0:
+            # change could affect line break position up to cols beforehand
+            if delta < self.cols:
                 break
             self.bol_ladder.append(self.bol_ladder[-1].move(d))
             prev = b

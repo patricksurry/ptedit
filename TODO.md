@@ -1,22 +1,28 @@
+crash after some insertions with a delete further on
+
+  File "/Users/psurry/ptedit/src/ptedit/display.py", line 38, in change_handler
+    self.fmt.change_handler(start, end)
+  File "/Users/psurry/ptedit/src/ptedit/formatter.py", line 40, in change_handler
+    self.rescue_ladder(start)
+  File "/Users/psurry/ptedit/src/ptedit/formatter.py", line 275, in rescue_ladder
+    assert d is not None
+AssertionError
+
+
 core:
 
 - should delete be in terms of location not offset? (special case for +/-1)
 
 - could we just track direction of mark from point easily so don't need to check?  (what about search?)
 
+- remove use of location inequality except for clarity in assertions
+
 
 rendering:
 
-- with mutation in perf test, frame rate drops from 90 to 30
+- [ ] don't return end of doc as '', width 0, instead ch=0, width=0 ?
 
-- next_glyph should keep a lookahead buffer rather than scanning back and forth.
-  be careful at start of line not to buffer everything.  
-  
-- add a test with > #cols non-breakable chars.
-
-- do we need the screen.clear() if we add padding at end of doc?
-
-- don't return '', width 0, instead ch=0, width=0 ?
+- [ ] ? do we need the screen.clear() if we add padding at end of doc?
 
 
 keyboard:
@@ -48,6 +54,13 @@ features:
 
 
 done:
+
+- [x] add a test with > #cols non-breakable chars.
+
+- [x] (not helpful) next_glyph should keep a lookahead buffer rather than scanning back and forth.
+  be careful at start of line not to buffer everything.  
+  
+- [x] with mutation in perf test, frame rate drops from 90 to 30
 
 - [x] logging for number of chars scanned via back & forth during each paint
 

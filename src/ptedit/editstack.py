@@ -37,11 +37,11 @@ class Edit:
         self._links = (self.before.next, self.after.prev)
 
         assert self.after is not None and self.before.next is not None
-        d = Location(self.after) - Location(self.before.next)
+        d = Location(self.after).distance_after(Location(self.before.next))
         assert d is not None and d >= (
             (0 if self.pre is None else len(self.pre))
             + (0 if self.post is None else len(self.post))
-        ), "Edit excluding insert is no longer than before"
+        ), f"Edit excluding insert is no longer than before {d}"
 
         pieces: list[Piece] = [p for p in cast(list[Piece|None], [
             self.before,

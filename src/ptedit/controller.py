@@ -6,7 +6,7 @@ from typing import Callable, Literal, cast
 
 import logging
 
-logging.basicConfig(level=logging.DEBUG, filename='ptedit.log', filemode='w')
+logging.basicConfig(level=logging.INFO, filename='ptedit.log', filemode='w')
 
 from .piecetable import Document, Location
 from .editor import Editor
