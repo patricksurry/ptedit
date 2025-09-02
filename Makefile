@@ -9,7 +9,7 @@ ptedit.fs: forth/*.fs
 	python3 $(FPP) -o ptedit.fs /tmp/ptedit.fs
 
 pteditasm.bin: forth/ptedit.asm
-	64tass --nostart --output pteditasm.bin --vice-labels --labels=forth/pteditasm.sym forth/ptedit.asm
+	64tass --nostart --output pteditasm.bin --vice-labels --labels=forth/ptedit.sym forth/ptedit.asm
 
 run: ptedit.bin
 	$(C65) -r ptedit.bin

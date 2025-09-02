@@ -1,6 +1,9 @@
+*.bin
+ptedit.fs
 *~
 *.log
 *.prof
+*.sym
 .pytest_cache/
 __pycache__/
 venv/
