@@ -88,6 +88,10 @@ class Location:
         """return true if our next links lead to other"""
         return self.distance_before(other) is not None
 
+    def is_strictly_before(self, other: Self) -> bool:
+        d = self.distance_before(other)
+        return d is not None and d > 0
+
     def distance_after(self, other: Self) -> int | None:
         """if self is at or after other, return positive distance, else None"""
         p = self.piece
@@ -105,4 +109,4 @@ class Location:
 
     def within(self, start: Self, end: Self) -> bool:
         """return true if self in [start, end)"""
-        return self.is_at_or_after(start) and self.is_at_or_before(end) and self != end
+        return self.is_at_or_after(start) and self.is_strictly_before(end)

@@ -18,6 +18,16 @@ class Ladder(deque[Location]):
     def __init__(self, locs: list[Location]=[]):
         super().__init__(locs, maxlen=48)
 
+    def brackets(self, pt: Location):
+        p, off = pt.tuple()
+        assert len(self) > 0 and p.prev is not None
+        start, end = self[0], self[-1]
+
+        return (
+            (start.is_strictly_before(pt) or (off == 0 and p.prev.prev is None and start == pt))
+            and (pt.is_strictly_before(end) or (off == 0 and p.next is None and end == pt))
+        )
+
 
 class Formatter:
     def __init__(self, doc: Document, cols: int, rungs: int, tab: int=4):
@@ -186,13 +196,11 @@ class Formatter:
         pt = self.doc.get_point()
         if self.bol_ladder:
             # do we already bracket the point?
-            if (
-                self.bol_ladder[0].is_at_or_before(pt) and (self.bol_ladder[0] != pt or self.doc.at_start())
-                and (pt.is_at_or_before(self.bol_ladder[-1]) and (self.bol_ladder[-1] != pt or self.doc.at_end()))
-            ):
+            if self.bol_ladder.brackets(pt):
                 return
 
             # is the existing ladder still useful?
+            #TODO is this right
             if pt.is_at_or_before(self.bol_ladder[0]) or (pt.distance_after(self.bol_ladder[-1]) or 1e6) > self.rungs * self.cols:
                 self.bol_ladder = Ladder()
 
@@ -207,10 +215,9 @@ class Formatter:
         while not self.doc.at_end() and self.doc.get_point().is_at_or_before(pt):
             self.bol_to_next_bol()
 
-        assert self.bol_ladder[0].is_at_or_before(pt) or (self.doc.at_start() and self.bol_ladder[0] == pt)
-        assert pt.is_at_or_before(self.bol_ladder[-1]) or (self.doc.at_end() and self.bol_ladder[-1] == pt)
-
         self.doc.set_point(pt)
+
+        assert self.bol_ladder.brackets(pt)
 
     def _bol_forward(self, max_col: int | None = None):
         """

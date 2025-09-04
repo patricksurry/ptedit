@@ -4,6 +4,7 @@ ptedit.fs
 *.log
 *.prof
 *.sym
+src/ptedit.egg-info/
 .pytest_cache/
 __pycache__/
 venv/

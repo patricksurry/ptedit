@@ -7,6 +7,20 @@ import argparse
 from .controller import Controller
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        prog='ptedit',
+        description='Prototype of minimal piece-table-based ascii editor',
+    )
+    parser.add_argument('filename')
+    parser.add_argument('-P', '--perftest', action='store_true', help="Performance test")
+    args = parser.parse_args()
+
+    result = wrapper(main_loop, args)
+    if result:
+        print(result)
+
+
 def main_loop(stdscr: curses.window, args: argparse.Namespace):
     ctrl = Controller(args.filename, stdscr)
 
@@ -17,15 +31,5 @@ def main_loop(stdscr: curses.window, args: argparse.Namespace):
         return None
 
 
-parser = argparse.ArgumentParser(
-    prog='ptedit',
-    description='Prototype of minimal piece-table-based ascii editor',
-)
-parser.add_argument('filename')
-parser.add_argument('-P', '--perftest', action='store_true', help="Performance test")
-args = parser.parse_args()
-
-result = wrapper(main_loop, args)
-if result:
-    print(result)
+main()
 

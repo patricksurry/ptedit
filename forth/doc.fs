@@ -1,3 +1,6 @@
+$f0 constant point
+: point@ ( -- loc ) point 2@ ;
+: point! ( loc -- ) point 2! ;
 
 : doc-start ( doc -- u piece ) piece> 0 swap ;
 : doc-end ( doc -- u piece ) 8 +  0 swap ;
@@ -14,7 +17,31 @@
     drop
   then
   pieces><
+  dup doc-start point!
 ;
+
+: doc. ( doc -- )
+  doc-start
+  begin 
+    \ at point?
+    2dup point@ rot = -rot = and if [char] ^ emit then
+    \ at piece start?
+	over 0= if [char] | emit then
+    2dup loc^
+    ?dup while
+    emit loc1+
+  repeat
+  2drop
+;
+
+: test_doc.
+  s" foobar" :doc dup doc. cr \ ^|foobar|
+  point@ 3 loc+ point! dup doc. cr \ |foo^bar| 
+  point@ 1000 loc+ point! doc. cr \ |foobar|^
+;
+
+.s cr
+test_doc.
 
 : test_alice
   $5000 $2d00 :doc
@@ -32,7 +59,9 @@
   $f006 c@ drop execute $f007 c@ drop $f008 2@
 ;
 
-' test_alice cycles cr
-.( cycles: ) ud. cr
+\ ' test_alice cycles cr
+\ .( cycles: ) ud. cr
 
 \ was 1F5A10 (2.05M) with loc1+  16BC3D (1.5M)
+
+.s cr
