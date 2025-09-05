@@ -1,21 +1,9 @@
-crash after some insertions with a delete further on
-
-  File "/Users/psurry/ptedit/src/ptedit/display.py", line 38, in change_handler
-    self.fmt.change_handler(start, end)
-  File "/Users/psurry/ptedit/src/ptedit/formatter.py", line 40, in change_handler
-    self.rescue_ladder(start)
-  File "/Users/psurry/ptedit/src/ptedit/formatter.py", line 275, in rescue_ladder
-    assert d is not None
-AssertionError
-
 
 core:
 
 - should delete be in terms of location not offset? (special case for +/-1)
 
 - could we just track direction of mark from point easily so don't need to check?  (what about search?)
-
-- remove use of location inequality except for clarity in assertions
 
 
 rendering:
@@ -26,9 +14,6 @@ rendering:
 
 
 keyboard:
-
-- [ ] del or ctrl v should del marked region if any; other printables?
-      cf: emacs transient mark mode
 
 - [ ] isearch show search in status
 
@@ -54,6 +39,10 @@ features:
 
 
 done:
+
+- [x] insert / del / ctrl-v etc should del marked region; cf: emacs transient mark mode
+
+- [x] remove use of location inequality except for clarity in assertions
 
 - [x] add a test with > #cols non-breakable chars.
 

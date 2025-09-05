@@ -27,6 +27,7 @@ class Editor:
         self.doc.set_point(self.doc.get_start().move(pos))
 
     ### Navigation commands
+
     def move_forward_char(self):
         self.doc.move_point(1)
 
@@ -126,25 +127,13 @@ class Editor:
     def toggle_overwrite(self):
         self.overwrite_mode = not self.overwrite_mode
 
-    def insert(self, ch: int):
-        c = chr(ch)
-        if self.isearch_direction:
-            self._isearch_insert(c)
-        elif self.overwrite_mode:
-            self.doc.replace(c)
-        else:
-            self.doc.insert(c)
+    def _delete_region(self):
+        """Helper to kill marked region, if any, prior to other edits"""
+        if self.mark:
+            _ = self._clip_region(cut=True)
 
-    def delete_forward_char(self):
-        self.doc.delete(1)
-
-    def delete_backward_char(self):
-        if self.isearch_direction:
-            self._isearch_delete()
-        else:
-            self.doc.delete(-1)
-
-    def _clip(self, cut: bool=False) -> str:
+    def _clip_region(self, cut: bool=False) -> str:
+        """Cut or copy marked region, error if no mark"""
         if self.mark is None:
             self.pager.show_message('No mark', True)
             s = ''
@@ -161,25 +150,45 @@ class Editor:
             self.mark = None
         return s
 
+    def insert(self, ch: int):
+        self._delete_region()
+        c = chr(ch)
+        if self.isearch_direction:
+            self._isearch_insert(c)
+        elif self.overwrite_mode:
+            self.doc.replace(c)
+        else:
+            self.doc.insert(c)
+
+    def delete_forward_char(self):
+        self._delete_region()
+        self.doc.delete(1)
+
+    def delete_backward_char(self):
+        self._delete_region()
+        if self.isearch_direction:
+            self._isearch_delete()
+        else:
+            self.doc.delete(-1)
+
     def copy(self):
-        self.clipboard = self._clip(cut=False)
+        self.clipboard = self._clip_region(cut=False)
 
     def cut(self):
-        self.clipboard = self._clip(cut=True)
+        self.clipboard = self._clip_region(cut=True)
 
     def paste(self):
+        self._delete_region()
         if not self.clipboard:
             self.pager.show_message('Clipboard empty', True)
             return
-        if self.mark:
-            _ = self._clip(cut=True)
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
         self.pager.move_start_line()
         self.mark = self.doc.get_point()
         self.pager.move_end_line()
-        return self._clip(cut)
+        return self._clip_region(cut)
 
     def copy_line(self):
         """Copy line to clipboard"""
