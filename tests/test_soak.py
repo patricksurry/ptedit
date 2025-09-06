@@ -48,7 +48,7 @@ def test_soak():
 
     # we get about 30% reduction with n=8192 and text=1024 because some edits combine
     assert doc.edit_stack.sp < n, "expected collapsed edits"
-    while doc.edit_stack.sp:
+    while doc.edit_stack.sp > 1:
         doc.undo()
 
     assert doc.get_data() == corpus

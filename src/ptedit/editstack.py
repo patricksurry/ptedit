@@ -60,13 +60,13 @@ class Edit:
     def create(cls, pt: Location, delete: int = 0, insert: str = '') -> Self:
         if delete == 0:
             pre, post = pt.piece.split(pt.offset) if pt.offset else (None, None)
-            before, after = pt.piece.prev, pt.piece.next
+            before, after = pt.piece.prev, pt.piece.next if pt.offset else pt.piece
         else:
             loc = pt.move(delete)
             left, right = (loc, pt) if delete < 0 else (pt, loc)
             pre = left.piece.split(left.offset)[0] if left.offset else None
             post = right.piece.split(right.offset)[1] if right.offset else None
-            before, after = left.piece.prev, right.piece.next
+            before, after = left.piece.prev, right.piece.next if right.offset else right.piece
 
         ins = PrimaryPiece(data=insert) if insert else None
 

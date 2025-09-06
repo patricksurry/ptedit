@@ -25,6 +25,11 @@ class Piece:
     def data(self) -> str:
         ...
 
+    def __bool__(self) -> bool:
+        # Make any non-None instance is truthy
+        # otherwise "if piece ..." checks for len() > 0
+        return True
+
     def __len__(self) -> int:
         return self._len
 

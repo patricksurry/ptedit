@@ -1,13 +1,9 @@
 
 core:
 
-- simplify combining edit (point match, has pre or post big enough to do del, ins always ok).  
+- [ ] get rid of edit stack
 
-- tests should just verify |^doc|ument| strings; more checks for combining edits (make consistent w/ forth)
-
-- should delete be in terms of location not offset? (special case for +/-1)
-
-- could we just track direction of mark from point easily so don't need to check?  (what about search?)
+- [ ] ? could we just track direction of mark from point easily so don't need to check?  (what about search?)
 
 
 rendering:
@@ -42,6 +38,10 @@ features:
 
 
 done:
+
+- [x] tests should just verify |^doc|ument| strings; more checks for combining edits (make consistent w/ forth)
+
+- [x] simplify combining edit (point match, has pre or post big enough to do del, ins always ok).  
 
 - [x] don't return end of doc as '', width 0, instead ch=0, width=0 ?
 

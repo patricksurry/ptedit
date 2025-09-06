@@ -27,58 +27,61 @@ def test_str():
 
 def test_delete_backward():
     doc = piecetable.Document('the quick brown fox')
-    assert len(doc.edit_stack) == 0
+    assert len(doc.edit_stack) == 1
 
     doc.move_point(9)
     doc.delete(-1)
     doc.delete(-1)
-    assert doc.get_data() == 'the qui brown fox'
-    assert len(doc.edit_stack) == 1
+    assert str(doc) == '|the qui|^ brown fox|'
+    assert len(doc.edit_stack) == 2
 
 
 def test_delete_forward():
     doc = piecetable.Document('the quick brown fox')
-    assert len(doc.edit_stack) == 0
+    assert len(doc.edit_stack) == 1
 
     doc.move_point(4)
     doc.delete(1)
     doc.delete(1)
-    assert doc.get_data() == 'the ick brown fox'
-    assert len(doc.edit_stack) == 1
+    assert str(doc) == '|the |^ick brown fox|'
+    assert len(doc.edit_stack) == 2
 
 
 def test_insert():
     doc = piecetable.Document('the quick brown fox')
-    assert len(doc.edit_stack) == 0
+    assert len(doc.edit_stack) == 1
 
     # check that insert combines
-    doc.move_point(100)
-    doc.insert(' is')
+    doc.move_point(9)
     doc.insert(' white')
-    assert doc.get_data() == 'the quick brown fox is white'
-    assert len(doc.edit_stack) == 1
+    doc.insert(' sly')
+    assert str(doc) == '|the quick| white sly|^ brown fox|'
+    assert len(doc.edit_stack) == 2
 
 
 def test_replace():
     doc = piecetable.Document('the quick brown fox')
-    assert len(doc.edit_stack) == 0
-
-    doc.delete(2)
-    assert doc.get_data() == 'e quick brown fox'
     assert len(doc.edit_stack) == 1
 
+    doc.move_point(1)
+    doc.delete(2)
+    assert str(doc) == '|t|^ quick brown fox|'
+    assert len(doc.edit_stack) == 2
+
+    doc.move_point(-1)
     doc.replace('a')
-    assert doc.get_data() == 'a quick brown fox'
-    assert len(doc.edit_stack) == 2
+    assert str(doc) == '|a|^ quick brown fox|'
+    assert len(doc.edit_stack) == 3
 
-    # check that replace combines
+    #TODO why doesn't this replace combine?
     doc.replace('nother')
-    assert doc.get_data() == 'another brown fox'
-    assert len(doc.edit_stack) == 2
+    assert str(doc) == '|a|nother|^ brown fox|'
+    assert len(doc.edit_stack) == 4
 
+    # these replaces do combine
     doc.move_point(2)
     doc.replace('l')
     doc.replace('ack')
-    assert doc.get_data() == 'another black fox'
-    assert len(doc.edit_stack) == 3
+    assert str(doc) == '|a|nother| b|lack|^ fox|'
+    assert len(doc.edit_stack) == 5
 

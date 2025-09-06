@@ -59,18 +59,15 @@ class Document:
         self._n_get_char_calls = 0  # for performance testing
 
     def _reset(self, s: str):
-        if s:
-            # any initial data is immutable, so don't represent as an Edit
-            p = PrimaryPiece(data=s)
-            Piece.link(self._start, p)
-            Piece.link(p, self._end)
-        else:
-            Piece.link(self._start, self._end)
+        Piece.link(self._start, self._end)
+        #TODO First edit should be immutable to protect source data
+        p = PrimaryPiece(data=s) if s else None
+        edit = Edit(self._start, self._end, ins=p)
 
         self.set_point_start()
 
         # Set up our edit stack
-        self.edit_stack = EditStack()
+        self.edit_stack = EditStack().push(edit)
 
     def watch(self, watcher: Watcher):
         self._watchers.append(watcher)
@@ -247,131 +244,39 @@ class Document:
 
     @mutator
     def insert(self, s: str) -> Document:
-        if not s:
-            return self
-
-        p, offset = self.get_point().tuple()
-        inplace = False
-        # inserting between two existing pieces?
-        if offset == 0:
-            # continuing a previous insert?
-            edit = self.edit_stack.peek()
-            if edit is not None and edit.ins is not None and p.prev == edit.ins:
-                edit.ins.extend(s)
-                inplace = True
-            else:
-                # insert new piece between p.prev and p
-                before, after = p.prev, p
-                assert before is not None
-                ins = PrimaryPiece(data=s)
-                edit = Edit(before, after, ins=ins)
-        else:
-            # split piece so we can insert
-            before, after = p.prev, p.next
-            assert before is not None and after is not None
-            pre, post = p.split(offset)
-            ins = PrimaryPiece(data=s)
-            edit = Edit(before, after, pre=pre, ins=ins, post=post)
-
-        self.edit_stack.push(None if inplace else edit)
+        last = self.edit_stack.peek()
+        assert last is not None
+        edit = last.apply(self.get_point(), insert=s)
+        self.edit_stack.push(edit if edit is not last else None)
         self.set_point(edit.get_end())
         return self
 
     @mutator
     def delete(self, n: int) -> Document:
-        # +n deletes to the right, -n deletes to the left
+        """
+        Delete characters from point
+        +n deletes to the right, -n deletes to the left
+        """
         if not n:
             return self
 
-        pt = self.get_point()
-        loc = pt.move(n)
-
-        if n < 0:
-            # for convenience, ensure point is before loc
-            loc, pt = pt, loc
-            n = -n
-
-        # are we deleting between two pieces?
-        before = pt.piece.prev
-        if pt.offset == 0:
-            # Can we continue a previous deletion?
-            edit = self.edit_stack.peek()
-            if (
-                edit and edit.ins is None
-                and edit.pre == before and edit.post == pt.piece
-                and edit.post is not None and len(edit.post) > n
-            ):
-                edit.post.trim(n)
-                self.edit_stack.push(None)
-                self.set_point(edit.get_end())
-                return self
-
-            pre = None
-        else:
-            pre = pt.piece.split(pt.offset)[0]
-
-        if loc.offset == 0:
-            # Can we continue a previous deletion?
-            after = loc.piece
-            post = None
-
-            edit = self.edit_stack.peek()
-            if (
-                edit and not edit.ins
-                and edit.pre == pt.piece and edit.post == after
-                and edit.pre is not None and len(edit.pre) > n
-            ):
-                edit.pre.trim(-n)
-                self.edit_stack.push(None)
-                self.set_point(edit.get_end())
-                return self
-
-        else:
-            after = loc.piece.next
-            post = loc.piece.split(loc.offset)[1]
-
-        assert before is not None and after is not None
-        edit = Edit(before, after, pre=pre, post=post)
-        self.edit_stack.push(edit)
+        last = self.edit_stack.peek()
+        assert last is not None
+        edit = last.apply(self.get_point(), delete=n)
+        self.edit_stack.push(edit if edit is not last else None)
         self.set_point(edit.get_end())
         return self
 
     @mutator
     def replace(self, s: str) -> Document:
+        """Replace len(s) characters right of the point"""
         if not s:
             return self
 
-        p, offset = self.get_point().tuple()
-
-        # can we continue a previous replace?
-        if offset == 0:
-            edit = self.edit_stack.peek()
-            if (
-                    edit is not None
-                    and edit.ins is not None and edit.ins == p.prev
-                    and edit.post is not None and edit.post == p
-                    and len(s) < len(p)
-            ):
-                edit.ins.extend(s)
-                edit.post.trim(len(s))
-                self.edit_stack.push(None)
-                self.set_point(edit.get_end())
-                return self
-
-        # delete
-        self.delete(len(s))
-        edit = self.edit_stack.peek()
-        assert edit is not None     # we just did a delete
-        # a new edit won't have an ins but just in case...
-        if edit.ins is not None:
-            self.insert(s)
-            return self
-
-        # undo the delete so we can relink with inserted text
-        self.edit_stack.undo()
-        ins = PrimaryPiece(data=s)
-        edit = Edit(edit.before, edit.after, edit.pre, ins, edit.post)
-        self.edit_stack.push(edit)
+        last = self.edit_stack.peek()
+        assert last is not None
+        edit = last.apply(self.get_point(), delete=len(s), insert=s)
+        self.edit_stack.push(edit if edit is not last else None)
         self.set_point(edit.get_end())
         return self
 
@@ -390,7 +295,7 @@ class Document:
     def __str__(self):
         spans: list[str] = []
         p = self._start.next
-        while p:
+        while p and len(p):
             s = p.data
             if self._point.piece == p:
                 s = s[:self._point.offset] + '^' + s[self._point.offset:]
