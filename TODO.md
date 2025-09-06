@@ -1,8 +1,6 @@
 
 core:
 
-- [ ] get rid of edit stack
-
 - [ ] ? could we just track direction of mark from point easily so don't need to check?  (what about search?)
 
 
@@ -38,6 +36,8 @@ features:
 
 
 done:
+
+- [x] get rid of edit stack
 
 - [x] tests should just verify |^doc|ument| strings; more checks for combining edits (make consistent w/ forth)
 

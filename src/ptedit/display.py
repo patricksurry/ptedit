@@ -89,14 +89,16 @@ class Display:
             doc_nl = self.doc.get_data().count('\n')
             pt_nl = self.doc.get_data(None, pt).count('\n')
             fname = ('*' if self.doc.dirty else '') + f'{self.fname}'
+            pt_pieces, all_pieces = self.doc.piece_counts()
+            pt_edits, all_edits = self.doc.edit_counts()
             status = "  ".join([
                 f"{fname}",
                 f"xy {cursor[1]},{cursor[0]}",
                 f"ch ${ord(self.doc.get_char() or '\0'):02x}",
                 f"pos {pt.position()}/{len(self.doc)}",
                 f"lns {pt_nl}/{doc_nl}",
-                f"pcs {pt.chain_length()}/{self.doc.piece_count()}",
-                f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
+                f"pcs {pt_pieces}/{all_pieces}",
+                f"eds {pt_edits}/{all_edits}",
             ])
 
         return " " + status + " " * (self.cols - len(status))

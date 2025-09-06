@@ -18,7 +18,6 @@ def test_undo():
     assert str(doc) == '|the |fastest |quick^ brown fox|'
 
     doc.undo()
-
     assert len(doc) == 19
     assert str(doc) == "|the ^quick brown fox|"
 

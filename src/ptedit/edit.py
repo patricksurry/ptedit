@@ -21,9 +21,10 @@ class Edit:
                      +-->| pre |-->| ins |-->| post | --+
                          +-----+   +-----+   +------+
     """
-    # The Edit stores pointers to the existing pieces before/after,
+    # The Edit stores pointers to the unchanged pieces before/after,
     # as well as the original value of before.next and after.prev
     # (i.e. the head and tail of the original fragment)
+
     before: Piece
     after: Piece
 
@@ -31,6 +32,9 @@ class Edit:
     pre: SecondaryPiece | None = None
     ins: PrimaryPiece | None = None     # for an insertion when new data is created
     post: SecondaryPiece | None = None
+
+    prev: Self | None = None
+    next: Self | None = None
 
     def __post_init__(self):
         # preserve the original links for undo
@@ -56,8 +60,17 @@ class Edit:
             Piece.link(*pair)
         self._applied = True
 
-    @classmethod
-    def create(cls, pt: Location, delete: int = 0, insert: str = '') -> Self:
+    def chain_length(self) -> int:
+        """Return number of edits up to and including this one"""
+        n = 0
+        edit = self
+        while edit is not None:
+            edit = edit.prev
+            n += 1
+        return n
+
+    def append(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
+        """Chain a new edit to this one and return it"""
         if delete == 0:
             pre, post = pt.piece.split(pt.offset) if pt.offset else (None, None)
             before, after = pt.piece.prev, pt.piece.next if pt.offset else pt.piece
@@ -71,7 +84,9 @@ class Edit:
         ins = PrimaryPiece(data=insert) if insert else None
 
         assert before is not None and after is not None
-        return cls(before=before, after=after, pre=pre, post=post, ins=ins)
+        edit = self.__class__(before=before, after=after, pre=pre, post=post, ins=ins, prev=self)
+        self.next = edit
+        return edit
 
     def _swap(self):
         links = self.before.next, self.after.prev
@@ -100,17 +115,17 @@ class Edit:
             loc = loc.move(-len(self.post))
         return loc
 
-    def apply(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
+    def merge_or_append(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
         """
         Either update self or return a new Edit
         """
-        if pt != self.get_end():
-            return self.create(pt, delete, insert)
+        if self.prev is None or pt != self.get_end():
+            return self.append(pt, delete, insert)
 
         if delete:
             p = self.post if delete > 0 else (self.ins or self.pre)
             if not p or len(p) <= abs(delete):
-                return self.create(pt, delete, insert)
+                return self.append(pt, delete, insert)
             p.trim(delete)
 
         if insert:
@@ -124,51 +139,14 @@ class Edit:
         return self
 
     def undo(self) -> Location:
+        """Undo this edit"""
+        assert self._applied, "undo: Edit already undone"
         self._swap()
-        assert not self._applied, "undo: Edit already undone"
         return self.get_end()
 
     def redo(self) -> Location:
+        """Redo this edit"""
+        assert not self._applied, "redo: Edit already applied"
         self._swap()
-        assert self._applied, "redo: Edit already applied"
         return self.get_end()
-
-
-class EditStack:
-    """
-    A list of edits that have been applied.
-    Normally sp is the size of the edit list,
-    but undo/redo navigate up/down the stack without removing later edits.
-    A push (even with None value) truncates the list.
-    """
-    def __init__(self):
-        self.edits: list[Edit] = []
-        self.sp = 0         # index of next empty slot
-
-    def __len__(self):
-        return len(self.edits)
-
-    def push(self, edit: Edit | None) -> EditStack:
-        self.edits = self.edits[:self.sp]
-        if edit is not None:
-            self.edits.append(edit)
-        self.sp = len(self.edits)
-        return self
-
-    def peek(self) -> Edit | None:
-        return self.edits[self.sp-1] if self.sp else None
-
-    def undo(self) -> Location | None:
-        if self.sp > 0:
-            self.sp -= 1
-            return self.edits[self.sp].undo()
-        else:
-            return None
-
-    def redo(self) -> Location | None:
-        if self.sp < len(self.edits):
-            self.sp += 1
-            return self.edits[self.sp-1].redo()
-        else:
-            return None
 

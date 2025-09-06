@@ -5,7 +5,7 @@ from enum import Enum
 
 from .piece import Piece, PrimaryPiece
 from .location import Location
-from .editstack import Edit, EditStack
+from .edit import Edit
 
 
 whitespace = ' \t\n'
@@ -54,32 +54,22 @@ class Document:
         # These are the only Pieces that are empty
         self._start: Piece = PrimaryPiece(allow_empty=True)
         self._end: Piece = PrimaryPiece(allow_empty=True)
-        self._reset(s)
         self.dirty = False
         self._n_get_char_calls = 0  # for performance testing
+        self._reset(s)
 
     def _reset(self, s: str):
         Piece.link(self._start, self._end)
-        #TODO First edit should be immutable to protect source data
         p = PrimaryPiece(data=s) if s else None
-        edit = Edit(self._start, self._end, ins=p)
-
+        self._edit = Edit(self._start, self._end, ins=p)
         self.set_point_start()
-
-        # Set up our edit stack
-        self.edit_stack = EditStack().push(edit)
 
     def watch(self, watcher: Watcher):
         self._watchers.append(watcher)
 
     def notify_watchers(self):
         self.dirty = True
-        edit = self.edit_stack.peek()
-        if edit:
-            start, end = (edit.get_start(), edit.get_end())
-        else:
-            assert self._start.next is not None
-            start, end = (Location(self._start.next), Location(self._end))
+        start, end = (self._edit.get_start(), self._edit.get_end())
         for watcher in self._watchers:
             watcher(start, end)
 
@@ -97,9 +87,16 @@ class Document:
         """count the number of characters in the document"""
         return len(self.get_data())
 
-    def piece_count(self) -> int:
-        """for debugging info"""
-        return Location(self._end).chain_length()
+    def piece_counts(self) -> tuple[int, int]:
+        """Count pieces to point and in full doc for extended status"""
+        return self._point.chain_length(), Location(self._end).chain_length()
+
+    def edit_counts(self) -> tuple[int, int]:
+        """Count active edits and total (including undone) edits for extended status"""
+        edit = self._edit
+        while edit.next:
+            edit = edit.next
+        return self._edit.chain_length(), edit.chain_length()
 
     def get_point(self) -> Location:
         return self._point
@@ -244,11 +241,10 @@ class Document:
 
     @mutator
     def insert(self, s: str) -> Document:
-        last = self.edit_stack.peek()
-        assert last is not None
-        edit = last.apply(self.get_point(), insert=s)
-        self.edit_stack.push(edit if edit is not last else None)
-        self.set_point(edit.get_end())
+        if not s:
+            return self
+        self._edit = self._edit.merge_or_append(self.get_point(), insert=s)
+        self.set_point(self._edit.get_end())
         return self
 
     @mutator
@@ -260,11 +256,8 @@ class Document:
         if not n:
             return self
 
-        last = self.edit_stack.peek()
-        assert last is not None
-        edit = last.apply(self.get_point(), delete=n)
-        self.edit_stack.push(edit if edit is not last else None)
-        self.set_point(edit.get_end())
+        self._edit = self._edit.merge_or_append(self.get_point(), delete=n)
+        self.set_point(self._edit.get_end())
         return self
 
     @mutator
@@ -273,23 +266,27 @@ class Document:
         if not s:
             return self
 
-        last = self.edit_stack.peek()
-        assert last is not None
-        edit = last.apply(self.get_point(), delete=len(s), insert=s)
-        self.edit_stack.push(edit if edit is not last else None)
-        self.set_point(edit.get_end())
+        self._edit = self._edit.merge_or_append(self.get_point(), delete=len(s), insert=s)
+        self.set_point(self._edit.get_end())
         return self
+
+    @property
+    def has_undo(self) -> bool:
+        # for testing
+        return self._edit.prev is not None
 
     @mutator
     def undo(self) -> Document:
-        if loc := self.edit_stack.undo():
-            self.set_point(loc)
+        if self._edit.prev:
+            self.set_point(self._edit.undo())
+            self._edit = self._edit.prev
         return self
 
     @mutator
     def redo(self) -> Document:
-        if loc := self.edit_stack.redo():
-            self.set_point(loc)
+        if self._edit.next:
+            self._edit = self._edit.next
+            self.set_point(self._edit.redo())
         return self
 
     def __str__(self):
@@ -301,7 +298,11 @@ class Document:
                 s = s[:self._point.offset] + '^' + s[self._point.offset:]
             spans.append(s)
             p = p.next
-        return '|' + '|'.join(spans) + '|'
+
+        s = '|' + '|'.join(spans) + '|'
+        if self._point.piece == p:
+            s += '^'
+        return s
 
     def __repr__(self):
         lines: list[str] = []
