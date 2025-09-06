@@ -1,16 +1,28 @@
 from ptedit import piecetable
 
 
+def test_start_end():
+    doc = piecetable.Document()
+    assert doc.at_start() and doc.at_end()
+
+    doc = piecetable.Document('foobar')
+    assert doc.at_start()
+    doc.set_point_end()
+    assert doc.at_end()
+    doc.set_point_start()
+    assert doc.at_start()
+
+
 def test_str():
     doc = piecetable.Document()
-    assert str(doc) == "|||"
+    assert str(doc) == "||"
     doc = piecetable.Document('ac')
-    assert str(doc) == "||ac||"
+    assert str(doc) == "|^ac|"
     assert doc.next_char() == 'a'
     assert len(doc.get_point().piece) == 2
     assert doc.get_point().offset == 1
     doc.insert('b')
-    assert str(doc) == "||a|b|c||"
+    assert str(doc) == "|a|b|^c|"
 
 
 def test_delete_backward():

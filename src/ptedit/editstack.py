@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import cast
+from typing import cast, Self
 from dataclasses import dataclass
 
 from .piece import Piece, PrimaryPiece, SecondaryPiece
@@ -56,6 +56,23 @@ class Edit:
             Piece.link(*pair)
         self._applied = True
 
+    @classmethod
+    def create(cls, pt: Location, delete: int = 0, insert: str = '') -> Self:
+        if delete == 0:
+            pre, post = pt.piece.split(pt.offset) if pt.offset else (None, None)
+            before, after = pt.piece.prev, pt.piece.next
+        else:
+            loc = pt.move(delete)
+            left, right = (loc, pt) if delete < 0 else (pt, loc)
+            pre = left.piece.split(left.offset)[0] if left.offset else None
+            post = right.piece.split(right.offset)[1] if right.offset else None
+            before, after = left.piece.prev, right.piece.next
+
+        ins = PrimaryPiece(data=insert) if insert else None
+
+        assert before is not None and after is not None
+        return cls(before=before, after=after, pre=pre, post=post, ins=ins)
+
     def _swap(self):
         links = self.before.next, self.after.prev
         self.before.next, self.after.prev = self._links
@@ -63,6 +80,9 @@ class Edit:
         self._applied = not self._applied
 
     def get_start(self) -> Location:
+        """
+        The edit starts after pre, or the equivalent offset if undone
+        """
         loc = Location(self.before)
         if self.pre is not None:
             loc = loc.move(len(self.pre))
@@ -70,7 +90,7 @@ class Edit:
 
     def get_end(self) -> Location:
         """
-        The location of the edit is after ins and before post,
+        The end of the edit (where the point lands) is after ins and before post,
         or the equivalent offset prior to after when undone
         """
         loc = Location(self.after)
@@ -79,6 +99,29 @@ class Edit:
             # but after an undo, we need to move an equivalent length backward
             loc = loc.move(-len(self.post))
         return loc
+
+    def apply(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
+        """
+        Either update self or return a new Edit
+        """
+        if pt != self.get_end():
+            return self.create(pt, delete, insert)
+
+        if delete:
+            p = self.post if delete > 0 else (self.ins or self.pre)
+            if not p or len(p) <= abs(delete):
+                return self.create(pt, delete, insert)
+            p.trim(delete)
+
+        if insert:
+            if self.ins:
+                self.ins.extend(insert)
+            else:
+                self.ins = PrimaryPiece(data=insert)
+                Piece.link(self.pre or self.before, self.ins)
+                Piece.link(self.ins, self.post or self.after)
+
+        return self
 
     def undo(self) -> Location:
         self._swap()

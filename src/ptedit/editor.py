@@ -24,7 +24,7 @@ class Editor:
     def squash(self):
         pos = self.doc.get_point().position()
         self.doc.squash()
-        self.doc.set_point(self.doc.get_start().move(pos))
+        self.doc.set_point_start().move_point(pos)
 
     ### Navigation commands
 
@@ -62,10 +62,10 @@ class Editor:
     # Nb. line-oriented commands are implemented by renderer
 
     def move_start(self):
-        self.doc.set_point(self.doc.get_start())
+        self.doc.set_point_start()
 
     def move_end(self):
-        self.doc.set_point(self.doc.get_end())
+        self.doc.set_point_end()
 
     def set_mark(self):
         self.mark = self.doc.get_point()
@@ -151,14 +151,15 @@ class Editor:
         return s
 
     def insert(self, ch: int):
-        self._delete_region()
         c = chr(ch)
         if self.isearch_direction:
             self._isearch_insert(c)
-        elif self.overwrite_mode:
-            self.doc.replace(c)
         else:
-            self.doc.insert(c)
+            self._delete_region()
+            if self.overwrite_mode:
+                self.doc.replace(c)
+            else:
+                self.doc.insert(c)
 
     def delete_forward_char(self):
         self._delete_region()

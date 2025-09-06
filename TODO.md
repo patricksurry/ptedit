@@ -1,14 +1,16 @@
 
 core:
 
+- simplify combining edit (point match, has pre or post big enough to do del, ins always ok).  
+
+- tests should just verify |^doc|ument| strings; more checks for combining edits (make consistent w/ forth)
+
 - should delete be in terms of location not offset? (special case for +/-1)
 
 - could we just track direction of mark from point easily so don't need to check?  (what about search?)
 
 
 rendering:
-
-- [ ] don't return end of doc as '', width 0, instead ch=0, width=0 ?
 
 - [ ] ? do we need the screen.clear() if we add padding at end of doc?
 
@@ -18,6 +20,7 @@ keyboard:
 - [ ] isearch show search in status
 
 - [ ] isearch remember last; do we need direction state if separate key?
+      https://www.gnu.org/software/emacs/manual/html_node/emacs/Repeat-Isearch.html
 
 - [ ] isearch_direction and trigger seem a bit of a mess
 
@@ -39,6 +42,8 @@ features:
 
 
 done:
+
+- [x] don't return end of doc as '', width 0, instead ch=0, width=0 ?
 
 - [x] insert / del / ctrl-v etc should del marked region; cf: emacs transient mark mode
 

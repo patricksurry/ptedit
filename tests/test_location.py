@@ -4,7 +4,7 @@ from ptedit.location import Location
 from ptedit.piece import PrimaryPiece
 
 doc = piecetable.Document('the quick brown fox')
-doc.set_point(doc.get_start().move(4))
+doc.set_point_start().move_point(4)
 doc.insert("f")
 doc.insert("astest ")
 doc.move_point(-4)
@@ -14,7 +14,7 @@ doc.delete(9)
 def test_structure():
     assert len(doc) == 18
     assert doc.get_data() == "the fast brown fox"
-    assert str(doc) == "||the |fast| brown fox||"
+    assert str(doc) == "|the |fast|^ brown fox|"
 
 
 def test_unordered():
@@ -25,14 +25,15 @@ def test_unordered():
 
 
 def test_ordering():
-    p0 = doc.get_start()
+    doc.set_point_start()
+    p0 = doc.get_point()
     p2 = p0.move(2)
     p3 = p0.move(3)
     p15 = p0.move(15)
     p18 = p0.move(18)
 
-    assert p0 == doc.get_start()
-    assert p18 == doc.get_end()
+    assert p0.is_start()
+    assert p18.is_end()
     assert p0.is_at_or_before(p18)
     assert p3.is_at_or_before(p3) and p3.is_at_or_after(p3)
     assert p18.is_at_or_after(p0)
@@ -50,8 +51,8 @@ def test_ordering():
     0, 1, 10, 30, 17, 18, -20, -18, -17, -1
 ])
 def test_location_offset_roundtrip(offset: int):
-    loc = (doc.get_start() if offset >= 0 else doc.get_end()).move(offset)
-    actual = loc.position()
+    (doc.set_point_start() if offset >= 0 else doc.set_point_end()).move_point(offset)
+    actual = doc.get_point().position()
     expect = max(min(offset, len(doc)), -len(doc))
     if expect < 0:
         expect += len(doc)
@@ -59,7 +60,7 @@ def test_location_offset_roundtrip(offset: int):
 
 
 def test_find_char_forward():
-    doc.set_point(doc.get_start().move(4))
+    doc.set_point_start().move_point(4)
     assert doc.find_char_forward('fa')
     assert doc.get_char() == 'f'
     assert doc.get_point().position() == 4
@@ -68,12 +69,12 @@ def test_find_char_forward():
     assert doc.get_char() == 'f'
     assert doc.get_point().position() == 15
     assert not doc.find_char_forward('the')
-    assert doc.get_char() == ''
+    assert doc.get_char() == '\0'
     assert doc.get_point().position() == 18
 
 
 def test_find_char_backward():
-    doc.set_point(doc.get_end())
+    doc.set_point_end()
     assert doc.find_char_backward('f')
     assert doc.get_char() == 'o'
     doc.move_point(-1)

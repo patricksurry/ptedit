@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import ClassVar
+from typing import ClassVar, Self
 from dataclasses import dataclass
 
 
@@ -35,6 +35,11 @@ class Piece:
         """Number pieces sequentially for debugging"""
         self.id = Piece._id
         Piece._id += 1
+
+    def trim(self, n: int) -> Self:
+        """
+        Trim piece by abs(n) charactesr on the left if n > 0 else on the right"""
+        ...
 
     def split(self, offset: int) -> tuple[SecondaryPiece, SecondaryPiece]:
         """
@@ -87,9 +92,14 @@ class PrimaryPiece(Piece):
     def data(self) -> str:
         return self._data
 
+    def trim(self, n: int) -> Self:
+        self._data = self._data[n:] if n>0 else self._data[:n]
+        self._len -= abs(n)
+        return self
+
     def extend(self, s: str):
         self._data += s
-        self._len = len(self._data)
+        self._len += len(s)
 
     def _ref(self) -> tuple[PrimaryPiece, int]:
         return self, 0
@@ -115,7 +125,8 @@ class SecondaryPiece(Piece):
     def data(self) -> str:
         return self._src.data[self._start:][:self._len]
 
-    def trim(self, left: int=0, right: int=0):
-        self._start += left
-        self._len -= left + right
+    def trim(self, n: int) -> Self:
+        self._start += max(0,n)
+        self._len -= abs(n)
         assert self._len > 0 and self._start + self._len <= len(self._src)
+        return self

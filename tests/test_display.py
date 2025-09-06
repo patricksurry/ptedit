@@ -8,14 +8,14 @@ ALICE_FLOW = open(path.join(path.dirname(__file__), 'alice1flow.asc')).read()
 
 def test_frame():
     alice = piecetable.Document(ALICE_NL)
-    alice.set_point(alice.get_start().move(595))
+    alice.set_point_start().move_point(595)
     pt = alice.get_point()
     dpy = display.Display(alice, display.Screen(24, 72))
-    dpy.preferred_top = alice.get_end()     # so it won't be found
+    dpy.preferred_top = None
     dpy.find_top()
     top = alice.get_point()
     s = alice.get_data(top, pt)
-    assert s.startswith('conversations in it')
+    assert s.startswith('the book her sister was reading')
 
 
 def test_wrap():
@@ -37,7 +37,7 @@ def test_paint():
         dpy.move_forward_line()
     dpy.paint()
 
-    doc.set_point(doc.get_end())
+    doc.set_point_end()
     dpy.paint()
 
     # backward page+
@@ -45,13 +45,13 @@ def test_paint():
         dpy.move_backward_line()
     dpy.paint()
 
-    doc.set_point(doc.get_start())
+    doc.set_point_end()
     dpy.paint()
 
 
 def test_end():
     doc = piecetable.Document(ALICE_FLOW)
-    doc.set_point(doc.get_end())
+    doc.set_point_end()
 
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()

@@ -28,6 +28,13 @@ class Location:
             offset += len(p)
         return offset
 
+    def is_start(self) -> bool:
+        assert self.piece.prev is not None
+        return self.offset == 0 and self.piece.prev.prev is None
+
+    def is_end(self) -> bool:
+        return self.piece.next is None
+
     def chain_length(self) -> int:
         """Return number of pieces before start (status only)"""
         n = 0

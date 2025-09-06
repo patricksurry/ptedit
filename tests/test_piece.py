@@ -15,5 +15,5 @@ def test_secondary():
     p = piece.SecondaryPiece(prev=foobar, source=foobar, start=2, length=3)
     assert p.prev == foobar
     assert p.data == 'oba'
-    p.trim(1,1)
+    p.trim(1).trim(-1)
     assert p.data == 'b'

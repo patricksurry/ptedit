@@ -17,7 +17,7 @@ def random_text():
 def randomize_point(doc: piecetable.Document):
     # use a binomial around 0 to get lots of action at the ends
     offset = int(random.gauss(0, 128))
-    doc.set_point(doc.get_start().move(offset))
+    doc.set_point_start().move_point(offset)
 
 
 class EditType(IntEnum):

@@ -28,8 +28,8 @@ class Display:
 
         # layout options
         self.guard_rows = guard_rows
-        self.preferred_row = preferred_row or int(0.4*self.rows)
-        self.preferred_top = self.doc.get_point() # top-left of screen
+        self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
+        self.preferred_top: Location | None = None
 
         self.message = ''
         self.doc.watch(self.change_handler)
@@ -41,7 +41,7 @@ class Display:
 
     def recenter(self):
         """Force point back to preferred row by invalidating sticky top"""
-        self.preferred_top = self.doc.get_end()
+        self.preferred_top = None
 
     def show_message(self, msg: str, warn: bool=False):
         self.message = msg
@@ -95,7 +95,7 @@ class Display:
                 f"ch ${ord(self.doc.get_char() or '\0'):02x}",
                 f"pos {pt.position()}/{len(self.doc)}",
                 f"lns {pt_nl}/{doc_nl}",
-                f"pcs {pt.chain_length()}/{self.doc.get_end().chain_length()}",
+                f"pcs {pt.chain_length()}/{self.doc.piece_count()}",
                 f"eds {self.doc.edit_stack.sp}/{len(self.doc.edit_stack.edits)}",
             ])
 
@@ -109,7 +109,7 @@ class Display:
         if TYPE_CHECKING:
             # pylance doesn't know rows > preferred_row > 0
             k = 0
-            fallback = self.doc.get_start()
+            fallback = self.doc.get_point()
 
         self.fmt.clamp_to_bol()
         for k in range(1,self.rows+1):

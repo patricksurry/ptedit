@@ -67,7 +67,7 @@ class Document:
         else:
             Piece.link(self._start, self._end)
 
-        self.set_point(self.get_start())
+        self.set_point_start()
 
         # Set up our edit stack
         self.edit_stack = EditStack()
@@ -81,7 +81,8 @@ class Document:
         if edit:
             start, end = (edit.get_start(), edit.get_end())
         else:
-            start, end = (self.get_start(), self.get_end())
+            assert self._start.next is not None
+            start, end = (Location(self._start.next), Location(self._end))
         for watcher in self._watchers:
             watcher(start, end)
 
@@ -89,22 +90,19 @@ class Document:
     def squash(self):
         self._reset(self.get_data())
 
-    def get_start(self) -> Location:
-        assert self._start.next is not None
-        return Location(self._start.next)
-
-    def get_end(self) -> Location:
-        return Location(self._end)
-
     def at_start(self) -> bool:
-        return self._point.piece == self._start.next and self._point.offset == 0
+        return self._point.is_start()
 
     def at_end(self) -> bool:
-        return self._point.piece == self._end
+        return self._point.is_end()
 
     def __len__(self) -> int:
         """count the number of characters in the document"""
         return len(self.get_data())
+
+    def piece_count(self) -> int:
+        """for debugging info"""
+        return Location(self._end).chain_length()
 
     def get_point(self) -> Location:
         return self._point
@@ -113,13 +111,23 @@ class Document:
         self._point = loc
         return self
 
+    def set_point_start(self) -> Document:
+        assert self._start.next is not None
+        self._point = Location(self._start.next)
+        return self
+
+    def set_point_end(self) -> Document:
+        self._point = Location(self._end)
+        return self
+
     def move_point(self, delta: int) -> Document:
         self._point = self._point.move(delta)
         return self
 
     def get_data(self, start: Location|None=None, end: Location|None=None) -> str:
-        p, offset = (start or self.get_start()).tuple()
-        q, q_offset = (end or self.get_end()).tuple()
+        assert self._start.next is not None
+        p, offset = start.tuple() if start else (self._start.next, 0)
+        q, q_offset = end.tuple() if end else (self._end, 0)
 
         s = ''
         while p != q and p.next is not None:
@@ -133,7 +141,7 @@ class Document:
         """Return character after point, without moving point"""
         self._n_get_char_calls += 1
         offset = self._point.offset
-        return self._point.piece.data[offset:offset+1]
+        return self._point.piece.data[offset:offset+1] or '\0'
 
     @property
     def n_get_char_calls(self) -> int:
@@ -209,7 +217,7 @@ class Document:
 
         pt = self.get_point()
         match = False
-        while not match and pt != self.get_end():
+        while not match and not pt.is_end():
             self.set_point(pt)
             pt = pt.move(1)
             for c in pattern:
@@ -228,7 +236,7 @@ class Document:
         match = self.get_point().position() <= len(pattern)
         self.move_point(-len(pattern))
         pt = self.get_point()
-        while not match and pt != self.get_start():
+        while not match and not pt.is_start():
             pt = pt.move(-1)
             self.set_point(pt)
             for c in pattern:
@@ -293,7 +301,7 @@ class Document:
                 and edit.pre == before and edit.post == pt.piece
                 and edit.post is not None and len(edit.post) > n
             ):
-                edit.post.trim(n, 0)
+                edit.post.trim(n)
                 self.edit_stack.push(None)
                 self.set_point(edit.get_end())
                 return self
@@ -313,7 +321,7 @@ class Document:
                 and edit.pre == pt.piece and edit.post == after
                 and edit.pre is not None and len(edit.pre) > n
             ):
-                edit.pre.trim(0, n)
+                edit.pre.trim(-n)
                 self.edit_stack.push(None)
                 self.set_point(edit.get_end())
                 return self
@@ -345,7 +353,7 @@ class Document:
                     and len(s) < len(p)
             ):
                 edit.ins.extend(s)
-                edit.post.trim(len(s), 0)
+                edit.post.trim(len(s))
                 self.edit_stack.push(None)
                 self.set_point(edit.get_end())
                 return self
@@ -381,11 +389,12 @@ class Document:
 
     def __str__(self):
         spans: list[str] = []
-        p = self._start
-        while True:
-            spans.append(p.data)
-            if p.next is None:
-                break
+        p = self._start.next
+        while p:
+            s = p.data
+            if self._point.piece == p:
+                s = s[:self._point.offset] + '^' + s[self._point.offset:]
+            spans.append(s)
             p = p.next
         return '|' + '|'.join(spans) + '|'
 

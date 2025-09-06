@@ -152,14 +152,14 @@ class Formatter:
             g.col = 0
             g.row += 1
 
-        if not g.c or g.c in ' -\t\n':
+        if g.c in ' -\t\n\0':
             self.wrap_lookahead = False
         elif not self.wrap_lookahead:
             # not-breaking character, need to do lookahead
             available = self.cols - g.col - 1
             while available:
                 c = self.doc.next_char()
-                if c in ' -\t\n':
+                if c in ' -\t\n\0':
                     break
                 available -= 1
             if available:
@@ -170,7 +170,7 @@ class Formatter:
             self.doc.set_point(pt)
 
         match g.c:
-            case '':
+            case '\0':
                 g.width = 0
             case '\t':
                 # Nb. assumes tab divides self.cols
@@ -180,7 +180,7 @@ class Formatter:
             case _:
                 g.width = 1
 
-        if not g.c or g.width + g.col == self.cols:
+        if g.width == 0 or g.width + g.col == self.cols:
             if pt not in self.bol_ladder:
                 self.bol_ladder.append(pt)
 
