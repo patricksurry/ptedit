@@ -79,7 +79,6 @@ class Display:
             self.fmt.bol_to_prev_bol()
         self.fmt.bol_to_preferred_col()
 
-
     def status_message(self, cursor: tuple[int, int]) -> str:
         if self.message:
             status = self.message
@@ -161,10 +160,9 @@ class Display:
 
         while True:
             # if we're at the point, cursor appears on next glyph
+            at_point = not g.phantom and self.doc.get_point() == pt
 
-            at_point = self.doc.get_point() == pt
-
-            if self.doc.get_point() == mark:
+            if not g.phantom and self.doc.get_point() == mark:
                 highlight = not highlight
 
             g = self.fmt.next_glyph(g)

@@ -1,4 +1,3 @@
-
 core:
 
 - [ ] ? could we just track direction of mark from point easily so don't need to check?  (what about search?)
@@ -8,18 +7,12 @@ rendering:
 
 - [ ] ? do we need the screen.clear() if we add padding at end of doc?
 
-
 keyboard:
-
-- [ ] isearch show search in status
-
-- [ ] isearch remember last; do we need direction state if separate key?
-      https://www.gnu.org/software/emacs/manual/html_node/emacs/Repeat-Isearch.html
-
-- [ ] isearch_direction and trigger seem a bit of a mess
 
 
 bugs:
+
+- [ ] sticky col breaks with up-arrow near end of line which is longer than previous
 
 - [ ] ? after Meta-E, the end of doc is at preferred row so half screen is wasted, rather than showing more preceding lines.
 
@@ -36,6 +29,15 @@ features:
 
 
 done:
+
+- [x] mark at bol after whitespace doesn't highlight properly (phantom padding)
+
+- [x] isearch show search in status
+
+- [x] isearch remember last; do we need direction state if separate key?
+      https://www.gnu.org/software/emacs/manual/html_node/emacs/Repeat-Isearch.html
+
+- [x] isearch_direction and trigger seem a bit of a mess
 
 - [x] get rid of edit stack
 

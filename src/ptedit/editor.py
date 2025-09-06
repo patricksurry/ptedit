@@ -1,6 +1,12 @@
+from enum import IntEnum
 from .piecetable import Document, MatchMode, whitespace
 from .location import Location
 from .display import Display
+
+
+class ISearchDirection(IntEnum):
+    FORWARD = 1
+    BACKWARD = -1
 
 
 class Editor:
@@ -14,7 +20,11 @@ class Editor:
         self.mark: Location | None = None
         self.clipboard = ''
         self.overwrite_mode = False
-        self.isearch_direction = 0      # -1 is backward, 1 is forward
+        self.isearch_dir: ISearchDirection | None = None
+        self.isearch_text = ''
+        self.isearch_origin = self.doc.get_point()
+        self.isearch_recall = False
+
         # TODO cycle mode action
         self.match_mode = MatchMode.SMART_CASE
 
@@ -74,53 +84,64 @@ class Editor:
         self.mark = None
 
     def isearch_forward(self):
-        self._isearch_trigger(1)
+        self._isearch_go(ISearchDirection.FORWARD)
 
     def isearch_backward(self):
-        self._isearch_trigger(-1)
+        self._isearch_go(ISearchDirection.BACKWARD)
 
     def isearch_exit(self):
-        self.isearch_direction = 0
-        self.clear_mark()
+        """Exit, leaving point after last search"""
+        self.isearch_dir = None
+        self.mark = None
 
     def isearch_cancel(self):
+        """Exit, returning to originakl point"""
         self.isearch_exit()
-        self.doc.set_point(self.search_pt)
+        self.doc.set_point(self.isearch_origin)
 
     def _isearch_insert(self, c: str):
-        self.search_text += c
-        self._isearch_trigger(reset=True)
+        """Extend search text and restart search"""
+        if self.isearch_start:      # defer clearing search text to allow reuse with C-S C-S
+            self.isearch_text = ''
+        self.isearch_text += c
+        self._isearch_restart()
 
     def _isearch_delete(self):
-        self.search_text = self.search_text[:-1]
-        self._isearch_trigger(reset=True)
+        """Trim search text and restart search"""
+        if self.isearch_start:
+            self.isearch_text = ''
+        self.isearch_text = self.isearch_text[:-1]
+        self._isearch_restart()
 
-    def _isearch_trigger(self, direction: int=0, reset: bool=False):
-        if reset:
-            self.doc.set_point(self.search_pt)
+    def _isearch_restart(self):
+        self.doc.set_point(self.isearch_origin)
+        self._isearch_go()
 
-        first = self.isearch_direction == 0
+    def _isearch_go(self, direction: ISearchDirection|None = None):
+        self.isearch_start = self.isearch_dir is None
 
-        if direction:
-            self.isearch_direction = direction
+        if direction is not None:
+            self.isearch_dir = direction
 
-        if first:
-            # remember where we started
-            self.search_pt = self.doc.get_point()
-            # TODO remember past text
-            self.search_text = ''
-        elif self.search_text:
+        self.pager.show_message(f"Search: {self.isearch_text}")
+        self.mark = None
+
+        if self.isearch_start:
+            # starting a new search
+            self.isearch_origin = self.doc.get_point()
+            return
+
+        if self.isearch_text:
             # search from current point
-            if self.isearch_direction == 1:
-                match = self.doc.find_forward(self.search_text, self.match_mode)
+            if self.isearch_dir == ISearchDirection.FORWARD:
+                match = self.doc.find_forward(self.isearch_text, self.match_mode)
             else:
-                match = self.doc.find_backward(self.search_text, self.match_mode)
+                match = self.doc.find_backward(self.isearch_text, self.match_mode)
+            # highlight match if found
             if match:
-                self.mark = self.doc.get_point().move(-len(self.search_text))
+                self.mark = self.doc.get_point().move(-len(self.isearch_text))
         else:
-            # TODO recycle past text if available
             self.pager.show_message("Empty search", True)
-            # TODO quit isearch mode?
 
     ### Editing commands
 
@@ -152,7 +173,7 @@ class Editor:
 
     def insert(self, ch: int):
         c = chr(ch)
-        if self.isearch_direction:
+        if self.isearch_dir is not None:
             self._isearch_insert(c)
         else:
             self._delete_region()
@@ -166,10 +187,10 @@ class Editor:
         self.doc.delete(1)
 
     def delete_backward_char(self):
-        self._delete_region()
-        if self.isearch_direction:
+        if self.isearch_dir is not None:
             self._isearch_delete()
         else:
+            self._delete_region()
             self.doc.delete(-1)
 
     def copy(self):

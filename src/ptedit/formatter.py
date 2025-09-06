@@ -8,10 +8,11 @@ from .piecetable import Document
 
 @dataclass
 class Glyph:
-    c: str = ''
-    row: int = 0
+    c: str = '\0'           # current character
+    row: int = 0            # row/col give screen position for this character
     col: int = 0
-    width: int = 0
+    width: int = 0          # how many cells to show (0, 1 or 2+ for whitespace)
+    phantom: bool = False   # True if this is a phantom \n for soft-wrapping
 
 
 class Ladder(deque[Location]):
@@ -152,6 +153,8 @@ class Formatter:
             g.col = 0
             g.row += 1
 
+        g.phantom = False
+
         if g.c in ' -\t\n\0':
             self.wrap_lookahead = False
         elif not self.wrap_lookahead:
@@ -167,6 +170,7 @@ class Formatter:
             else:
                 pt = pt.move(-1)    # unget the non-breaking character
                 g.c = '\n'          # send a soft break instead
+                g.phantom = True
             self.doc.set_point(pt)
 
         match g.c:
