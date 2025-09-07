@@ -1,7 +1,7 @@
 import random
 from os import path
 from enum import IntEnum
-from ptedit import piecetable
+from ptedit import document
 
 
 # use a shortish doc to ensure overlaps
@@ -14,7 +14,7 @@ def random_text():
     return corpus[src:][:k]
 
 
-def randomize_point(doc: piecetable.Document):
+def randomize_point(doc: document.Document):
     # use a binomial around 0 to get lots of action at the ends
     offset = int(random.gauss(0, 128))
     doc.set_point_start().move_point(offset)
@@ -27,7 +27,7 @@ class EditType(IntEnum):
 
 
 def test_soak():
-    doc = piecetable.Document(corpus)
+    doc = document.Document(corpus)
     n = 8192
     random.seed(42)
     for _ in range(n):

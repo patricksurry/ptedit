@@ -3,7 +3,7 @@ from collections import deque
 import logging
 
 from .location import Location
-from .piecetable import Document
+from .document import Document
 
 
 @dataclass

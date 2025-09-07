@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 import logging
 
-from .piecetable import Document, whitespace
+from .document import Document, whitespace
 from .location import Location
 from .formatter import Formatter
 from .screen import Screen
@@ -47,6 +47,7 @@ class Display:
         self.message = msg
         if warn:
             self.scr.alert()
+            logging.warning(msg)
 
     def move_start_line(self):
         self.fmt.clamp_to_bol()

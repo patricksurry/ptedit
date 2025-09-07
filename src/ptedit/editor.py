@@ -1,5 +1,5 @@
 from enum import IntEnum
-from .piecetable import Document, MatchMode, whitespace
+from .document import Document, MatchMode, whitespace
 from .location import Location
 from .display import Display
 
@@ -210,6 +210,7 @@ class Editor:
         self.pager.move_start_line()
         self.mark = self.doc.get_point()
         self.pager.move_end_line()
+        self.move_forward_char()
         return self._clip_region(cut)
 
     def copy_line(self):

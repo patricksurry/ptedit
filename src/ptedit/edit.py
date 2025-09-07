@@ -33,6 +33,7 @@ class Edit:
     ins: PrimaryPiece | None = None     # for an insertion when new data is created
     post: SecondaryPiece | None = None
 
+    # Edits form a linked list supporting undo/redo
     prev: Self | None = None
     next: Self | None = None
 
@@ -72,14 +73,15 @@ class Edit:
     def append(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
         """Chain a new edit to this one and return it"""
         if delete == 0:
-            pre, post = pt.piece.split(pt.offset) if pt.offset else (None, None)
-            before, after = pt.piece.prev, pt.piece.next if pt.offset else pt.piece
+            left, right = pt, pt
         else:
             loc = pt.move(delete)
             left, right = (loc, pt) if delete < 0 else (pt, loc)
-            pre = left.piece.split(left.offset)[0] if left.offset else None
-            post = right.piece.split(right.offset)[1] if right.offset else None
-            before, after = left.piece.prev, right.piece.next if right.offset else right.piece
+
+        pre = left.piece.lsplit(left.offset) if left.offset else None
+        post = right.piece.rsplit(right.offset) if right.offset else None
+
+        before, after = left.piece.prev, right.piece.next if right.offset else right.piece
 
         ins = PrimaryPiece(data=insert) if insert else None
 
@@ -149,4 +151,3 @@ class Edit:
         assert not self._applied, "redo: Edit already applied"
         self._swap()
         return self.get_end()
-

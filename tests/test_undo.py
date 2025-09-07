@@ -1,8 +1,8 @@
-from ptedit import piecetable
+from ptedit import document
 
 
 def test_undo():
-    doc = piecetable.Document('the quick brown fox')
+    doc = document.Document('the quick brown fox')
     doc.set_point_start().move_point(4)
     doc.insert("fastest ")
     assert str(doc) == '|the |fastest |^quick brown fox|'

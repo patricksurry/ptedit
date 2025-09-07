@@ -1,9 +1,9 @@
 import pytest
-from ptedit import piecetable
+from ptedit import document
 from ptedit.location import Location
 from ptedit.piece import PrimaryPiece
 
-doc = piecetable.Document('the quick brown fox')
+doc = document.Document('the quick brown fox')
 doc.set_point_start().move_point(4)
 doc.insert("f")
 doc.insert("astest ")

@@ -1,4 +1,4 @@
-from ptedit.piecetable import Document
+from ptedit.document import Document
 from ptedit.edit import Edit
 
 

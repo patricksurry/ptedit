@@ -6,12 +6,14 @@ from typing import Callable, Literal, cast
 
 import logging
 
-logging.basicConfig(level=logging.INFO, filename='ptedit.log', filemode='w')
 
-from .piecetable import Document, Location
+from .document import Document, Location
 from .editor import Editor
 from .display import Display
 from .screen import CursesScreen
+
+
+logging.basicConfig(level=logging.INFO, filename='ptedit.log', filemode='w')
 
 
 class KeyMode(IntEnum):

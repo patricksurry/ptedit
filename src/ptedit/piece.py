@@ -46,28 +46,32 @@ class Piece:
         Trim piece by abs(n) charactesr on the left if n > 0 else on the right"""
         ...
 
-    def split(self, offset: int) -> tuple[SecondaryPiece, SecondaryPiece]:
+    def lsplit(self, offset: int) -> SecondaryPiece:
         """
-        Split a piece at an internal boundary, returning two new pieces
-        Note the new pieces are linked back to their existing neighbors
-        but are *not* linked *from* those neighbors.
-        They are also not linked to each other.
+        Split a piece at an internal boundary, returning the left piece.
+        The piece is linked back *to* its existing neighbor, but
+        the link *from* that neighbor isn't changed.  The internal link is empty.
         """
         assert 0 < offset < len(self)
         src, start = self._ref()
-        return (
-            SecondaryPiece(
-                prev=self.prev,
-                length=offset,
-                source=src,
-                start=start,
-            ),
-            SecondaryPiece(
-                next=self.next,
-                length=len(self)-offset,
-                source=src,
-                start=start+offset
-            )
+        return SecondaryPiece(
+            prev=self.prev,
+            length=offset,
+            source=src,
+            start=start,
+        )
+
+    def rsplit(self, offset: int) -> SecondaryPiece:
+        """
+        Return the right hand pice of a split.
+        """
+        assert 0 < offset < len(self)
+        src, start = self._ref()
+        return SecondaryPiece(
+            next=self.next,
+            length=len(self)-offset,
+            source=src,
+            start=start+offset
         )
 
     @staticmethod

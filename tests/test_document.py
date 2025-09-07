@@ -1,11 +1,11 @@
-from ptedit import piecetable
+from ptedit import document
 
 
 def test_start_end():
-    doc = piecetable.Document()
+    doc = document.Document()
     assert doc.at_start() and doc.at_end()
 
-    doc = piecetable.Document('foobar')
+    doc = document.Document('foobar')
     assert doc.at_start()
     assert str(doc) == '|^foobar|'
     doc.set_point_end()
@@ -17,9 +17,9 @@ def test_start_end():
 
 
 def test_str():
-    doc = piecetable.Document()
-    assert str(doc) == "||^"
-    doc = piecetable.Document('ac')
+    doc = document.Document()
+    assert str(doc) == "|^"
+    doc = document.Document('ac')
     assert str(doc) == "|^ac|"
     assert doc.next_char() == 'a'
     assert len(doc.get_point().piece) == 2
@@ -29,7 +29,7 @@ def test_str():
 
 
 def test_delete_backward():
-    doc = piecetable.Document('the quick brown fox')
+    doc = document.Document('the quick brown fox')
     assert doc.edit_counts()[0] == 1
 
     doc.move_point(9)
@@ -40,7 +40,7 @@ def test_delete_backward():
 
 
 def test_delete_forward():
-    doc = piecetable.Document('the quick brown fox')
+    doc = document.Document('the quick brown fox')
     assert doc.edit_counts()[0] == 1
 
     doc.move_point(4)
@@ -51,7 +51,7 @@ def test_delete_forward():
 
 
 def test_insert():
-    doc = piecetable.Document('the quick brown fox')
+    doc = document.Document('the quick brown fox')
     assert doc.edit_counts()[0] == 1
 
     # check that insert combines
@@ -63,7 +63,7 @@ def test_insert():
 
 
 def test_replace():
-    doc = piecetable.Document('the quick brown fox')
+    doc = document.Document('the quick brown fox')
     assert doc.edit_counts()[0] == 1
 
     doc.move_point(1)

@@ -30,6 +30,8 @@ features:
 
 done:
 
+- [x] kill line doesn't include newline
+
 - [x] mark at bol after whitespace doesn't highlight properly (phantom padding)
 
 - [x] isearch show search in status

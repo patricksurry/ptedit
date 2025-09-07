@@ -1,4 +1,4 @@
-from ptedit import display, piecetable
+from ptedit import display, document
 from os import path
 
 
@@ -7,7 +7,7 @@ ALICE_FLOW = open(path.join(path.dirname(__file__), 'alice1flow.asc')).read()
 
 
 def test_frame():
-    alice = piecetable.Document(ALICE_NL)
+    alice = document.Document(ALICE_NL)
     alice.set_point_start().move_point(595)
     pt = alice.get_point()
     dpy = display.Display(alice, display.Screen(24, 72))
@@ -19,7 +19,7 @@ def test_frame():
 
 
 def test_wrap():
-    doc = piecetable.Document('the\t quick brown fox\njumps \tover the lazy dog')
+    doc = document.Document('the\t quick brown fox\njumps \tover the lazy dog')
     dpy = display.Display(doc, display.Screen(24, 16))
     dpy.move_forward_line()
     assert doc.get_point().position() == 11
@@ -28,7 +28,7 @@ def test_wrap():
 
 
 def test_paint():
-    doc = piecetable.Document(ALICE_FLOW)
+    doc = document.Document(ALICE_FLOW)
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
 
@@ -50,7 +50,7 @@ def test_paint():
 
 
 def test_end():
-    doc = piecetable.Document(ALICE_FLOW)
+    doc = document.Document(ALICE_FLOW)
     doc.set_point_end()
 
     dpy = display.Display(doc, display.Screen(24, 80))

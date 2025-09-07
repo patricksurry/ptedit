@@ -1,5 +1,5 @@
 $f0 constant point
-: point@ ( -- loc ) point 2@ ;
+: point@ ( -- loc ) point 2@ ; \ where loc is ( u piece )
 : point! ( loc -- ) point 2! ;
 
 : doc-start ( doc -- u piece ) piece> 0 swap ;

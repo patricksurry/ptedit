@@ -290,18 +290,15 @@ class Document:
         return self
 
     def __str__(self):
-        spans: list[str] = []
         p = self._start.next
-        while p and len(p):
-            s = p.data
+        s: str = ''
+        while p:
+            s += '|'
             if self._point.piece == p:
-                s = s[:self._point.offset] + '^' + s[self._point.offset:]
-            spans.append(s)
+                s += p.data[:self._point.offset] + '^' + p.data[self._point.offset:]
+            else:
+                s += p.data
             p = p.next
-
-        s = '|' + '|'.join(spans) + '|'
-        if self._point.piece == p:
-            s += '^'
         return s
 
     def __repr__(self):

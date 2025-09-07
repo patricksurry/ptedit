@@ -30,6 +30,6 @@ def main_loop(stdscr: curses.window, args: argparse.Namespace):
         ctrl.interactive()
         return None
 
-
-main()
+if __name__ == "__main__":
+    main()
 
