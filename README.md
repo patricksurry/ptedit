@@ -90,7 +90,7 @@ Edit
 - flags[1]: pre? post? ins? 1/2 x 4, applied?
 - [1/2] before -> Piece   ; the pieces where we swap the fragment in and out
 - [1/2] after -> Piece    ; these are immutable
-- old_start, old_end [1/2], [1/2]
+- unlinked_first, unlinked_last [1/2], [1/2]
 - pre [8], post[8], ins[6+] ; 1-3 inline pieces, with pre/post shadowing data, and ins having inline storage (if present)
 
 

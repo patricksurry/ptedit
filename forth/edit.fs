@@ -1,6 +1,7 @@
 \ an edit tracks changes to the piece chain
+\ with changes represented as:
 \
-\ before [pre] [ins] [post] after
+\   before [pre] [ins] [post] after
 
 \ flags
 \ prev, next
@@ -18,8 +19,18 @@
 
   here 0 c, 0 , 0 , swap \ allocate flags, prev, next
   ( <ins> edit n )
+
   ?dup if \ delete n chars
-    \ todo
+    >r point@ 2dup r@ loc+ ( pt pt+del )
+    r> if 2swap then ( right left ) aka ( ir rpiece il lpiece )
+  then
+  dup piece< \ todo => before
+  over if piece>| drop %1 else 2drop 0 then
+  \ todo => flags
+  2dup swap if piece> then \ todo => after
+  over if piece|< drop %10 else 2drop 0 then
+  \ todo => flags
+
   else \ no delete
     point@ over if \ split piece at point
       ( <ins> edit u piece )
@@ -41,3 +52,8 @@
     swap  
   then
 ;
+
+
+\ edit/ \ delete forward char
+\ edit\ \ delete backward char
+\ edit^ \ insert char

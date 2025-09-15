@@ -69,7 +69,7 @@ class Document:
 
     def notify_watchers(self):
         self.dirty = True
-        start, end = (self._edit.get_start(), self._edit.get_end())
+        start, end = (self._edit.get_change_start(), self._edit.get_change_end())
         for watcher in self._watchers:
             watcher(start, end)
 
@@ -244,7 +244,7 @@ class Document:
         if not s:
             return self
         self._edit = self._edit.merge_or_append(self.get_point(), insert=s)
-        self.set_point(self._edit.get_end())
+        self.set_point(self._edit.get_change_end())
         return self
 
     @mutator
@@ -257,7 +257,7 @@ class Document:
             return self
 
         self._edit = self._edit.merge_or_append(self.get_point(), delete=n)
-        self.set_point(self._edit.get_end())
+        self.set_point(self._edit.get_change_end())
         return self
 
     @mutator
@@ -267,7 +267,7 @@ class Document:
             return self
 
         self._edit = self._edit.merge_or_append(self.get_point(), delete=len(s), insert=s)
-        self.set_point(self._edit.get_end())
+        self.set_point(self._edit.get_change_end())
         return self
 
     @property

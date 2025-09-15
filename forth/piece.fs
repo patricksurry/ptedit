@@ -31,11 +31,15 @@ here .
 : piece< ( piece -- piece' )  6 + @ ; \ prev piece
 : piece# ( piece -- u )  @ ;          \ length of piece data
 : pieces>< ( p q -- )  2dup 6 + ! swap 4 + ! ; \ link two pieces
-: piece| ( u piece -- piece' piece'' ) 
-  \ split a piece at u < piece#, preserving original prev/next
-  dup 4 + 2@ swap 2>r ( u piece  R: next prev )
-  2dup 2 + @ swap r> 0 ( addr u prev next ) :piece ( u piece piece' )
-  -rot 2@ rot /string 0 r> :piece ( piece' piece'' ) 
+: piece>| ( u piece -- lpiece )       \ split left at u > 0
+  dup 2 + @ -rot ( addr u piece )
+  6 + @ 0 ( addr u prev 0 ) 
+  :piece
+;
+: piece|< ( u piece -- rpiece )       \ split right at u > 0
+  tuck 2@ rot /string ( piece addr+u n-u )
+  rot 4 + @ 0 swap ( addr' u' 0 next )
+  :piece
 ;
 : piece. ( piece -- )   \ show a piece
   [char] < emit space dup 6 + @ u. space 
@@ -114,8 +118,9 @@ cr here . cr
 : test_split
   s" banana" 1234 5678 :piece
   dup piece. cr
-  2 swap piece| .s cr
-  piece. piece.
+  2 over piece>| piece. cr
+  2 swap piece|< piece. cr
+  .s cr
 ;
 
 test_split

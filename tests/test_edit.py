@@ -11,9 +11,9 @@ def test_apply():
     assert e2 != e1
     assert str(doc) == '|abc|^the quick brown fox|'
     e3 = e2.merge_or_append(pt, delete=-2)
-    assert e3 == e2
     assert str(doc) == '|a|^the quick brown fox|'
+    assert e3 == e2
     e4 = e3.merge_or_append(pt, delete=3)
     assert e4 != e3
-    doc.set_point(e4.get_end())
+    doc.set_point(e4.get_change_end())
     assert str(doc) == '|a|^ quick brown fox|'
