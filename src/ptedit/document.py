@@ -60,8 +60,7 @@ class Document:
 
     def _reset(self, s: str):
         Piece.link(self._start, self._end)
-        p = PrimaryPiece(data=s) if s else None
-        self._edit = Edit(self._start, self._end, ins=p)
+        self._edit = Edit.create(Location(self._end), insert=s)
         self.set_point_start()
 
     def watch(self, watcher: Watcher):
@@ -243,7 +242,7 @@ class Document:
     def insert(self, s: str) -> Document:
         if not s:
             return self
-        self._edit = self._edit.merge_or_append(self.get_point(), insert=s)
+        self._edit = self._edit.apply_change(self.get_point(), insert=s)
         self.set_point(self._edit.get_change_end())
         return self
 
@@ -256,7 +255,7 @@ class Document:
         if not n:
             return self
 
-        self._edit = self._edit.merge_or_append(self.get_point(), delete=n)
+        self._edit = self._edit.apply_change(self.get_point(), delete=n)
         self.set_point(self._edit.get_change_end())
         return self
 
@@ -266,7 +265,7 @@ class Document:
         if not s:
             return self
 
-        self._edit = self._edit.merge_or_append(self.get_point(), delete=len(s), insert=s)
+        self._edit = self._edit.apply_change(self.get_point(), delete=len(s), insert=s)
         self.set_point(self._edit.get_change_end())
         return self
 

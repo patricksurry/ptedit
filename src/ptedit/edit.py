@@ -30,6 +30,7 @@ class Edit:
                        +------+     +------+     +------+
 
     """
+
     def __init__(self,
         before: Piece,
         after: Piece,
@@ -43,6 +44,12 @@ class Edit:
         prev: Self | None = None,
         next: Self | None = None,
     ):
+        """
+        The constructor is private.
+        Use Edit.create() to create a new edit for a change,
+        or edit.apply_change() to merge a compatible change if possible, otherwise appending a new edit
+        """
+
         self.pre = pre
         self.post = post
         self.ins = ins
@@ -80,6 +87,60 @@ class Edit:
         self._applied = False
         self.redo()
 
+    @classmethod
+    def create(cls, pt: Location, delete: int = 0, insert: str = '') -> Self:
+        """Create an edit representing an insert/delete action"""
+        if delete == 0:
+            left, right = pt, pt
+        else:
+            loc = pt.move(delete)
+            left, right = (loc, pt) if delete < 0 else (pt, loc)
+
+        pre = left.piece.lsplit(left.offset) if left.offset else None
+        post = right.piece.rsplit(right.offset) if right.offset else None
+
+        before, after = left.piece.prev, right.piece.next if right.offset else right.piece
+
+        ins = PrimaryPiece(data=insert) if insert else None
+
+        assert before is not None and after is not None
+        return cls(before=before, after=after, pre=pre, post=post, ins=ins)
+
+    def apply_change(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
+        """
+        Either update self or return a new Edit
+        """
+        compatible = True
+        if self.prev is None or pt != self.get_change_end():
+            compatible = False
+        elif delete:
+            p = self.post if delete > 0 else (self.ins or self.pre)
+            if not p or len(p) <= abs(delete):
+                compatible = False
+            else:
+                p.trim(delete)
+
+        if not compatible:
+            return self.append(self.create(pt, delete, insert))
+
+        if insert:
+            if self.ins:
+                self.ins.extend(insert)
+            else:
+                self.ins = PrimaryPiece(data=insert)
+                before = self.unlinked_first.prev
+                after = self.unlinked_last.next
+                assert before and after
+                Piece.link(self.pre or before, self.ins)
+                Piece.link(self.ins, self.post or after)
+
+        return self
+
+    def append(self, edit: Self) -> Self:
+        edit.prev = self
+        self.next = edit
+        return edit
+
     @property
     def before(self) -> Piece:
         p = self.unlinked_first.prev if not self.unlinked_empty else self.unlinked_last
@@ -108,7 +169,6 @@ class Edit:
         self._applied = True
         return self.get_change_end()
 
-
     def chain_length(self) -> int:
         """Return number of edits up to and including this one"""
         n = 0
@@ -117,27 +177,6 @@ class Edit:
             edit = edit.prev
             n += 1
         return n
-
-    def append(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
-        """Chain a new edit to this one and return it"""
-
-        if delete == 0:
-            left, right = pt, pt
-        else:
-            loc = pt.move(delete)
-            left, right = (loc, pt) if delete < 0 else (pt, loc)
-
-        pre = left.piece.lsplit(left.offset) if left.offset else None
-        post = right.piece.rsplit(right.offset) if right.offset else None
-
-        before, after = left.piece.prev, right.piece.next if right.offset else right.piece
-
-        ins = PrimaryPiece(data=insert) if insert else None
-
-        assert before is not None and after is not None
-        edit = self.__class__(before=before, after=after, pre=pre, post=post, ins=ins, prev=self)
-        self.next = edit
-        return edit
 
     def get_change_start(self) -> Location:
         """
@@ -161,28 +200,3 @@ class Edit:
             loc = loc.move(-len(self.post))
         return loc
 
-    def merge_or_append(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
-        """
-        Either update self or return a new Edit
-        """
-        if self.prev is None or pt != self.get_change_end():
-            return self.append(pt, delete, insert)
-
-        if delete:
-            p = self.post if delete > 0 else (self.ins or self.pre)
-            if not p or len(p) <= abs(delete):
-                return self.append(pt, delete, insert)
-            p.trim(delete)
-
-        if insert:
-            if self.ins:
-                self.ins.extend(insert)
-            else:
-                self.ins = PrimaryPiece(data=insert)
-                before = self.unlinked_first.prev
-                after = self.unlinked_last.next
-                assert before and after
-                Piece.link(self.pre or before, self.ins)
-                Piece.link(self.ins, self.post or after)
-
-        return self
