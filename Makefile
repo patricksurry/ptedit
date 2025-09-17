@@ -5,7 +5,7 @@ FPP = ../6502/advent-forth/scripts/fpp.py
 all: run
 
 ptedit.fs: forth/*.fs
-	cat forth/piece.fs forth/doc.fs forth/render.fs > /tmp/ptedit.fs
+	cat forth/piece.fs forth/doc.fs forth/edit.fs forth/render.fs > /tmp/ptedit.fs
 	python3 $(FPP) -o ptedit.fs /tmp/ptedit.fs
 
 pteditasm.bin: forth/ptedit.asm
@@ -16,13 +16,13 @@ run: ptedit.bin
 
 ptedit.bin: ptedit.fs pteditasm.bin
 	( \
-		dd if=ptedit.fs bs=3K conv=sync ; \
+		dd if=ptedit.fs bs=7K conv=sync ; \
 		dd if=pteditasm.bin bs=1K conv=sync ; \
 		dd if=tests/alice1flow.asc bs=12K conv=sync ; \
 		dd if=../6502/tali/taliforth-c65.bin \
 	) > ptedit.bin
 
-# $4000 $c00 evaluate
+# $3000 $1c00 evaluate
 # $
 # : test_move $f006 c@ $5000 $3000 1920 cmove $f007 c@ $f008 2@ ud. ;  ok
 # test_move 31784  ok (31fps; 16 cycles/char moved)

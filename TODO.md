@@ -12,6 +12,8 @@ keyboard:
 
 bugs:
 
+- [ ] C- loses preferred row?
+
 - [ ] sticky col breaks with up-arrow near end of line which is longer than previous
 
 - [ ] ? after Meta-E, the end of doc is at preferred row so half screen is wasted, rather than showing more preceding lines.
@@ -20,6 +22,10 @@ bugs:
 features:
 
 - [ ] wrap/non-wrap mode  (guard_cols, preferred left always 0)
+
+- [ ] tabs => spaces
+
+- [ ] remove trailing whitespace on save?
 
 - [ ] ? crlf handling
 

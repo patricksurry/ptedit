@@ -32,8 +32,8 @@ class Edit:
     """
 
     def __init__(self,
-        before: Piece,
-        after: Piece,
+        exclude_first: Piece,
+        exclude_last: Piece,
 
         # The Edit contains 0-3 new pieces pre/ins/post describing the new fragment
         pre: SecondaryPiece | None = None,
@@ -57,18 +57,16 @@ class Edit:
         self.next = next
 
         # preserve the original links for undo
-        assert before.next is not None and after.prev is not None
-        self.unlinked_first: Piece = before.next
-        self.unlinked_last: Piece = after.prev
-        self.unlinked_empty = before.next == after
-        assert self.unlinked_first.prev == before and self.unlinked_last.next == after
+        self.exclude_first: Piece = exclude_first
+        self.exclude_last: Piece = exclude_last
+        self.exclude_empty = exclude_first == exclude_last.next
 
-        assert after is not None and before.next is not None
-        d = Location(after).distance_after(Location(before.next))
+        assert exclude_first is not None and exclude_last.next is not None
+        d = Location(exclude_last.next).distance_after(Location(exclude_first))
         assert d is not None and d >= (
             (0 if self.pre is None else len(self.pre))
             + (0 if self.post is None else len(self.post))
-        ), f"Edit excluding insert is no longer than before {d}"
+        ), f"Edit excluding insert should not be longer than before change, got d={d}"
 
         pieces: list[Piece] = [
             p for p in cast(list[Piece|None], [self.pre, self.ins, self.post])
@@ -81,11 +79,23 @@ class Edit:
 
         # set up the backlinks
         if pieces:
-            pieces[0].prev = before
-            pieces[-1].next = after
+            pieces[0].prev = self.before
+            pieces[-1].next = self.after
 
         self._applied = False
         self.redo()
+
+    @property
+    def before(self) -> Piece:
+        p = self.exclude_first.prev if not self.exclude_empty else self.exclude_last
+        assert p
+        return p
+
+    @property
+    def after(self) -> Piece:
+        p = self.exclude_last.next if not self.exclude_empty else self.exclude_first
+        assert p
+        return p
 
     @classmethod
     def create(cls, pt: Location, delete: int = 0, insert: str = '') -> Self:
@@ -96,15 +106,14 @@ class Edit:
             loc = pt.move(delete)
             left, right = (loc, pt) if delete < 0 else (pt, loc)
 
+        exclude_first, exclude_last = left.piece, right.piece if right.offset else right.piece.prev
+        assert exclude_first and exclude_last
+
         pre = left.piece.lsplit(left.offset) if left.offset else None
         post = right.piece.rsplit(right.offset) if right.offset else None
-
-        before, after = left.piece.prev, right.piece.next if right.offset else right.piece
-
         ins = PrimaryPiece(data=insert) if insert else None
 
-        assert before is not None and after is not None
-        return cls(before=before, after=after, pre=pre, post=post, ins=ins)
+        return cls(exclude_first, exclude_last, pre=pre, post=post, ins=ins)
 
     def apply_change(self, pt: Location, delete: int = 0, insert: str = '') -> Self:
         """
@@ -128,11 +137,8 @@ class Edit:
                 self.ins.extend(insert)
             else:
                 self.ins = PrimaryPiece(data=insert)
-                before = self.unlinked_first.prev
-                after = self.unlinked_last.next
-                assert before and after
-                Piece.link(self.pre or before, self.ins)
-                Piece.link(self.ins, self.post or after)
+                Piece.link(self.pre or self.before, self.ins)
+                Piece.link(self.ins, self.post or self.after)
 
         return self
 
@@ -141,23 +147,11 @@ class Edit:
         self.next = edit
         return edit
 
-    @property
-    def before(self) -> Piece:
-        p = self.unlinked_first.prev if not self.unlinked_empty else self.unlinked_last
-        assert p
-        return p
-
-    @property
-    def after(self) -> Piece:
-        p = self.unlinked_last.next if not self.unlinked_empty else self.unlinked_first
-        assert p
-        return p
-
     def undo(self) -> Location:
         """Undo this edit"""
         assert self._applied, "undo: Edit already undone"
-        self.before.next = self.unlinked_first
-        self.after.prev = self.unlinked_last
+        self.before.next = self.exclude_first
+        self.after.prev = self.exclude_last
         self._applied = False
         return self.get_change_end()
 

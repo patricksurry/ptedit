@@ -6,7 +6,7 @@ def test_apply():
     doc = Document('the quick brown fox')
     pt = doc.get_point()
     assert pt.piece.prev is not None
-    e1 = Edit(pt.piece.prev, pt.piece, None, None, None)
+    e1 = Edit(pt.piece, pt.piece.prev)
     e2 = e1.apply_change(pt, insert='abc')
     assert e2 != e1
     assert str(doc) == '|abc|^the quick brown fox|'

@@ -23,10 +23,10 @@ $f0 constant point
 : doc. ( doc -- )
   doc-start
   begin 
-    \ at point?
-    2dup point@ rot = -rot = and if [char] ^ emit then
     \ at piece start?
 	over 0= if [char] | emit then
+    \ at point?
+    2dup point@ rot = -rot = and if [char] ^ emit then
     2dup loc^
     ?dup while
     emit loc1+
@@ -40,7 +40,6 @@ $f0 constant point
   point@ 1000 loc+ point! doc. cr \ |foobar|^
 ;
 
-.s cr
 test_doc.
 
 : test_alice

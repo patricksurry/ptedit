@@ -1,4 +1,5 @@
 hex
+0 nc-limit !  \ simpler for debugging
 here .
 
 \ A piece is a string with a prev and next pointer
@@ -31,6 +32,9 @@ here .
 : piece< ( piece -- piece' )  6 + @ ; \ prev piece
 : piece# ( piece -- u )  @ ;          \ length of piece data
 : pieces>< ( p q -- )  2dup 6 + ! swap 4 + ! ; \ link two pieces
+: ?pieces>< ( p|0 q|0 -- p'|0 )
+  2dup if if over swap pieces>< else nip then else drop then
+;
 : piece>| ( u piece -- lpiece )       \ split left at u > 0
   dup 2 + @ -rot ( addr u piece )
   6 + @ 0 ( addr u prev 0 ) 
