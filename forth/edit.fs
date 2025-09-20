@@ -18,6 +18,16 @@
   dup c@ %10000000 and if  5 + @  else  7 + @ piece>  then
 ;
 
+: edit] ( edit -- loc )
+  0 swap dup edit-after swap 
+  ( 0 piece edit )
+  dup c@ %10 and if  \ post?
+    c@ %1 and 3 lshift 9 + + piece# loc+
+  else
+    drop
+  then 
+;
+
 : >pieces ( edit -- pre ins post )  	\ with zeros when absent
   dup 9 + swap c@
   ( edit' flags )
@@ -36,6 +46,9 @@
   over edit-after >r
   swap >pieces r> 
   ( before pre ins post after )
+  \ set point to <0, post|after>
+  over if over else dup then 0 swap point!
+  \ link up the chain
   4 0 do ?pieces>< loop
   drop    
 ;
@@ -51,6 +64,7 @@
   \ - split doc at point
   \ - remove n characters (left if n<0, right if >0)
   \ - insert ch (u=-1), string (u>0) or nothing (u=0)
+  \ - connect to doc chain and set point
 
   here 0 c, 0 , 0 , swap \ allocate flags, prev, next
   ( <ins> edit n )
@@ -98,7 +112,7 @@
       drop :piece^
     else 
       ( edit flags addr u )
-      :piece$
+      :piece$$			\ copy the source string
     then
     drop
   then
@@ -107,6 +121,11 @@
   ( edit )
   dup redo
   ( edit )
+;
+
+: change ( <ins> n edit -- edit' )
+  \ modify edit if compatible or create a new one
+  dup 1+ 
 ;
 
 : test-edit 

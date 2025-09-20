@@ -60,6 +60,10 @@ here .
 \ loc is just a double word ( i piece )
 \ so we don't use an explicit constructor (2@ and 2! are fine)
 
+: loc= ( loc loc' -- true|false )
+  rot = -rot = and
+;
+
 \ get char at loc, or 0 if piece is empty
 : loc^ ( i piece -- c )  piece$ ( i addr u ) if + c@ else 2drop 0 then ;
 \ move location by n
