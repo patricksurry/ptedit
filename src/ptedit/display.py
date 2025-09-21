@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 import logging
 
-from .document import Document, whitespace
+from .document import Document
 from .location import Location
 from .formatter import Formatter
 from .screen import Screen
@@ -30,6 +30,9 @@ class Display:
         self.guard_rows = guard_rows
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
         self.preferred_top: Location | None = None
+
+        self.preferred_col = 0          # last column that wasn't
+        self.pin_preferred_col = False  # True if cursor should track preferred col
 
         self.message = ''
         self.doc.watch(self.change_handler)
@@ -61,24 +64,25 @@ class Display:
     def move_forward_line(self):
         self.fmt.clamp_to_bol()
         self.fmt.bol_to_next_bol()
-        self.fmt.bol_to_preferred_col()
+        # defer column setting until we render the line with the point
+        self.pin_preferred_col = True
 
     def move_backward_line(self):
         self.fmt.clamp_to_bol()
         self.fmt.bol_to_prev_bol()
-        self.fmt.bol_to_preferred_col()
+        self.pin_preferred_col = True
 
     def move_forward_page(self):
         self.fmt.clamp_to_bol()
         for _ in range(self.rows):
             self.fmt.bol_to_next_bol()
-        self.fmt.bol_to_preferred_col()
+        self.pin_preferred_col = True
 
     def move_backward_page(self):
         self.fmt.clamp_to_bol()
         for _ in range(self.rows):
             self.fmt.bol_to_prev_bol()
-        self.fmt.bol_to_preferred_col()
+        self.pin_preferred_col = True
 
     def status_message(self, cursor: tuple[int, int]) -> str:
         if self.message:
@@ -146,43 +150,68 @@ class Display:
 
         logging.info(f'paint top {len(self.fmt.bol_ladder)} bol')
 
-        pt = self.doc.get_point()
+        original_pt = self.doc.get_point()
         self.find_top()         # move point to show at top-left of screen
 
         _n = self.doc.n_get_char_calls - _n0
-        logging.info(f'paint glyphs {len(self.fmt.bol_ladder)} bol {_n} chars, top/pt {self.doc.get_point().position()}/{pt.position()}')
+        logging.info(f'paint glyphs {len(self.fmt.bol_ladder)} bol {_n} chars, top/pt {self.doc.get_point().position()}/{original_pt.position()}')
 
         self.scr.clear()        # move cursor to 0,0
 
-        g = self.fmt.iter_glyphs()
         cursor = (0, 0)
 
-        highlight = mark is not None and mark.position() < self.doc.get_point().position()
+        start_pt = self.doc.get_point()
+        start_pos = start_pt.position()
+        pt_off = original_pt.position() - start_pos
+        assert pt_off >= 0, "Point should always be on screen"
+        mark_off = (mark if mark else original_pt).position()  - start_pos
 
-        while True:
-            # if we're at the point, cursor appears on next glyph
-            at_point = not g.phantom and self.doc.get_point() == pt
+        highlight = mark_off < 0
 
-            if not g.phantom and self.doc.get_point() == mark:
-                highlight = not highlight
+        row = 0
+        while row < self.rows and not self.doc.at_end():
+            line = self.fmt.format_line()
+            pt = self.doc.get_point()
+            delta = pt.distance_after(start_pt)
+            assert delta is not None
+            start_pt = pt
+            toggle = bytearray(self.cols)
+            if 0 <= pt_off < delta:
+                if self.pin_preferred_col:
+                    assert pt_off == 0
+                    # deferred move forward to pinned column
+                    pt_off = self.fmt.offset_for_column(self.pin_preferred_col, line)
+                    assert pt_off < delta
+                    original_pt = original_pt.move(pt_off)
+                col = self.fmt.column_for_offset(pt_off, line)
+                toggle[col] = 1 - toggle[col]
+                cursor = (row, col)
 
-            g = self.fmt.next_glyph(g)
+            if 0 <= mark_off < delta:
+                col = self.fmt.column_for_offset(mark_off, line)
+                toggle[col] = 1 - toggle[col]
 
-            if at_point:
-                cursor = (g.row, g.col)
-                if mark:
+            pt_off -= delta
+            mark_off -= delta
+
+            for col, ch in enumerate(line):
+                if toggle[col]:
                     highlight = not highlight
+                match ch:
+                    case 1: ch = ord('^')
+                    case 2: ch = ord('\\')
+                    case _ if ch < 32: ch = ord(' ')
+                    case _: pass
+                self.scr.put(ch, highlight)
 
-            if g.width == 0 or g.row == self.rows:
-                break
+            row += 1
 
-            ch = 32 if g.c in whitespace else ord(g.c)
-            for _ in range(g.width):
-                self.scr.put(ch, highlight=highlight)
+        self.doc.set_point(original_pt)
 
-        self.doc.set_point(pt)
-
-        self.fmt.set_preferred_col(cursor[1])
+        if not self.pin_preferred_col:
+            self.preferred_col = cursor[1]
+        else:
+            self.pin_preferred_col = False
 
         status = self.status_message(cursor)
         self.scr.move(self.rows, 0)

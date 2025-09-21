@@ -27,6 +27,27 @@ def test_wrap():
     assert doc.get_point().position() == 21
 
 
+def test_preferred_col():
+    doc = document.Document(ALICE_FLOW)
+    dpy = display.Display(doc, display.Screen(24, 80))
+    doc.move_point(10)
+    dpy.paint()
+    assert dpy.preferred_col == 10
+
+    pt = doc.get_point()
+    while not doc.at_end():
+        dpy.move_forward_line()
+        dpy.paint()
+        assert doc.get_point() != pt
+        pt = doc.get_point()
+
+    while not doc.at_start():
+        dpy.move_backward_line()
+        dpy.paint()
+        assert doc.get_point() != pt
+        pt = doc.get_point()
+
+
 def test_paint():
     doc = document.Document(ALICE_FLOW)
     dpy = display.Display(doc, display.Screen(24, 80))

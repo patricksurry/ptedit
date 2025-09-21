@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from collections import deque
 import logging
 
@@ -6,13 +5,7 @@ from .location import Location
 from .document import Document
 
 
-@dataclass
-class Glyph:
-    c: str = '\0'           # current character
-    row: int = 0            # row/col give screen position for this character
-    col: int = 0
-    width: int = 0          # how many cells to show (0, 1 or 2+ for whitespace)
-    phantom: bool = False   # True if this is a phantom \n for soft-wrapping
+hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
 
 
 class Ladder(deque[Location]):
@@ -40,29 +33,11 @@ class Formatter:
         self.rungs = rungs
         self.tab = tab
 
-        self.preferred_col = 0
-        self.is_column_sticky = True    # sticky col for vertical navigation
-
         self.bol_ladder = Ladder()      # cached beginning of line marks
-        self.glyph = Glyph()
         self.wrap_lookahead: bool
 
     def change_handler(self, start: Location, end: Location):
         self.rescue_ladder(start)
-
-    def set_preferred_col(self, col: int):
-        # update preferred column unless this was a non-sticky cursor movement
-        if self.is_column_sticky:
-            # treat doc-end as BoL at col 0 even if missing trailing newline
-            # otherwise backward-line gets stuck there
-            self.preferred_col = 0 if self.doc.at_end() else col
-        else:
-            self.is_column_sticky = True
-
-    def bol_to_preferred_col(self):
-        """Snap back to preferred column, without changing it"""
-        self._bol_forward(self.preferred_col)
-        self.is_column_sticky = False
 
     def clamp_to_bol(self):
         """
@@ -99,7 +74,8 @@ class Formatter:
         if i+1 < n:
             self.doc.set_point(self.bol_ladder[i+1])
         else:
-            self._bol_forward()
+            # format and discard the line
+            self.format_line()
 
     def bol_to_prev_bol(self):
         """
@@ -134,61 +110,104 @@ class Formatter:
 
     ### Internal glyph rendering for BoL calcs and painting
 
-    def iter_glyphs(self):
+    def format_line(self) -> bytes:
+        r"""
+        Convert doc characters to a string of exactly 'cols' bytes that can
+        be directly mapped to screen display characters.
+        Normally a byte corresponds to a single document character,
+        but there are a few exceptions:
+        - 0x00 indicates a padding space, with no corresponding character in the document
+        - 0x01 <x> is a control-escape for a single non-printable character c = 0x00-0x1f
+          with x = c | 0x40, displayed as "^C" perhaps in a different color.
+        - 0x02 <x> <y> is a hex-escape for a single non-printable character c > 0x7e
+          with x,y as the hex nibbles, displayed as "\xy" perhaps in a different color.
+        - whitespace bytes \t, \n and ' ' are normally be displayed as a single
+          space (additional padding zero bytes will be added), but could be
+          shown with a special character to indicate tabs or newlines.
+
+        This representation makes it easy to compute the screen column
+        given a document offset from BoL.
+        """
+
         pt = self.doc.get_point()
         if pt not in self.bol_ladder:
             self.bol_ladder = Ladder([pt])
-            logging.info(f'iter_glyphs reset to [{pt.position()}]')
-        self.wrap_lookahead = True
-        return Glyph()
+            logging.info(f'format_line reset to [{pt.position()}]')
 
-    def next_glyph(self, g: Glyph) -> Glyph:
-        g.c = self.doc.next_char()
-        pt = self.doc.get_point()
+        wrap_col = 0
+        wrap_point: Location | None = None
+        line = b''
+        while len(line) < self.cols:
+            ch = ord(self.doc.next_char()[:1])
 
-        # update from previous glyph
-        g.col += g.width
-        if g.col >= self.cols:
-            self.wrap_lookahead = True      # always safe at start of row
-            g.col = 0
-            g.row += 1
-
-        g.phantom = False
-
-        if g.c in ' -\t\n\0':
-            self.wrap_lookahead = False
-        elif not self.wrap_lookahead:
-            # not-breaking character, need to do lookahead
-            available = self.cols - g.col - 1
-            while available:
-                c = self.doc.next_char()
-                if c in ' -\t\n\0':
+            if 32 <= ch < 127 or ch in (0, ord('\t'), ord('\n')):
+                if ch:
+                    line += bytes([ch])
+                if ch in (0, ord('\n'), ord('\t'), ord(' '), ord('-')):
+                    wrap_col = len(line)
+                    wrap_point = self.doc.get_point()
+                    if ch in (0, ord('\n')):
+                        break
+                    elif ch == ord('\t'):
+                        pad = (self.tab - len(line)) & (self.tab - 1)
+                        line += bytes(pad)
+            elif 0 < ch < 32:
+                if len(line) < self.cols-1:
+                    line += bytes([0x01, ch|0x40])
+                else:
+                    self.doc.move_point(-1)
                     break
-                available -= 1
-            if available:
-                self.wrap_lookahead = True
-            else:
-                pt = pt.move(-1)    # unget the non-breaking character
-                g.c = '\n'          # send a soft break instead
-                g.phantom = True
-            self.doc.set_point(pt)
+            elif ch >= 127:
+                if len(line) < self.cols-2:
+                    line += bytes([0x02, hex_digits[ch // 16], hex_digits[ch%16]])
+                else:
+                    self.doc.move_point(-1)
+                    break
 
-        match g.c:
-            case '\0':
-                g.width = 0
-            case '\t':
-                # Nb. assumes tab divides self.cols
-                g.width = self.tab - (g.col % self.tab)
-            case '\n':
-                g.width = self.cols - g.col
-            case _:
-                g.width = 1
+        if wrap_point:
+            line = line[:wrap_col]
+            self.doc.set_point(wrap_point)
 
-        if g.width == 0 or g.width + g.col == self.cols:
-            if pt not in self.bol_ladder:
-                self.bol_ladder.append(pt)
+        if self.doc.get_point() not in self.bol_ladder:
+            self.bol_ladder.append(self.doc.get_point())
 
-        return g
+        line += bytes(self.cols - len(line))
+
+        return line
+
+    @staticmethod
+    def column_for_offset(offset: int, line: bytes) -> int:
+        line = line.rstrip(b'\x00')
+
+        column = 0
+        while offset > 0 and column < len(line)-1:
+            match line[column]:
+                case 0x00:
+                    column += 1
+                case 0x01:
+                    column += 2
+                    offset -= 1
+                case 0x02:
+                    column += 3
+                    offset -= 1
+                case _:
+                    column += 1
+                    offset -= 1
+        return column
+
+    @staticmethod
+    def offset_for_column(column: int, line: bytes) -> int:
+        if column > len(line):
+            column = len(line)
+        offset = 0
+        i = 0
+        while i < column:
+            if line[i] != 0x00:
+                offset += 1
+            if line[i] < 0x03:      # skip 1 char for 0x1 and 2 for 0x2
+                i += line[i]
+            i += 1
+        return offset
 
     ### Internal beginning-of-line routines
 
@@ -222,30 +241,6 @@ class Formatter:
         self.doc.set_point(pt)
 
         assert self.bol_ladder.brackets(pt)
-
-    def _bol_forward(self, max_col: int | None = None):
-        """
-        Advance point from BOL so that it appears at max_col
-        (or earlier if the line is shorter).  If max_col is None
-        we advance the point to the next BOL. i.e. so the cursor
-        would appear at the start of the next line or at end of doc.
-        """
-        if max_col == 0:
-            return
-
-        if max_col is None:
-            max_col = self.cols
-
-        g = self.iter_glyphs()
-        while True:
-            g = self.next_glyph(g)
-            if g.width == 0 or g.row > 0 or g.col + g.width >= max_col:
-                break
-
-        # if we passed max_col we need to retreat one character
-        if g.width + g.col > max_col:
-            self.doc.move_point(-1)
-
 
     def rescue_ladder(self, start: Location):
         """

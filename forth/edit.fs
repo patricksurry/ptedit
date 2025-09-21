@@ -125,7 +125,8 @@
 
 : change ( <ins> n edit -- edit' )
   \ modify edit if compatible or create a new one
-  dup 1+ 
+  dup edit] point@ loc= if 
+     
 ;
 
 : test-edit 
