@@ -153,7 +153,7 @@ class Formatter:
                 n = 1 if ch < 32 else 2
                 if len(line) >= self.cols - n:
                     self.doc.move_point(-1)
-                    continue
+                    break
 
             col_map.append(len(line))
 

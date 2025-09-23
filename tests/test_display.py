@@ -82,3 +82,9 @@ def test_end():
     assert not doc.at_end()
     dpy.paint()
     assert not doc.at_end()
+
+
+def test_raw():
+    doc = document.Document(open('tests/raw.dat', encoding='iso-8859-1').read())
+    dpy = display.Display(doc, display.Screen(24, 80))
+    dpy.paint()

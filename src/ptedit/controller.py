@@ -67,7 +67,8 @@ class Controller:
         self.fname = fname
         self.change_count = 0
 
-        self.doc = Document(open(fname).read())
+        # use iso-8859-1 so that str <-> bytes is 1:1
+        self.doc = Document(open(fname, encoding='iso-8859-1').read())
         self.doc.watch(self.change_handler)
         self.dpy = Display(self.doc, CursesScreen(stdscr), fname)
         self.ed = Editor(self.doc, self.dpy)
@@ -158,7 +159,7 @@ class Controller:
         self.active = False
 
     def save(self, suffix: str=''):
-        open(self.fname + suffix, 'w').write(self.doc.get_data())
+        open(self.fname + suffix, 'w', encoding='iso-8859-1').write(self.doc.get_data())
         self.doc.dirty = False
 
     def autosave(self, interval: int=10):
