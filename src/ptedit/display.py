@@ -63,14 +63,16 @@ class Display:
 
     def move_forward_line(self):
         self.fmt.clamp_to_bol()
-        self.fmt.bol_to_next_bol()
-        # defer column setting until we render the line with the point
-        self.pin_preferred_col = True
+        if not self.doc.at_end():
+            self.fmt.bol_to_next_bol()
+            # defer column setting until we render the line with the point
+            self.pin_preferred_col = True
 
     def move_backward_line(self):
         self.fmt.clamp_to_bol()
-        self.fmt.bol_to_prev_bol()
-        self.pin_preferred_col = True
+        if not self.doc.at_start():
+            self.fmt.bol_to_prev_bol()
+            self.pin_preferred_col = True
 
     def move_forward_page(self):
         self.fmt.clamp_to_bol()
@@ -151,6 +153,8 @@ class Display:
         logging.info(f'paint top {len(self.fmt.bol_ladder)} bol')
 
         original_pt = self.doc.get_point()
+        at_end = self.doc.at_end()
+
         self.find_top()         # move point to show at top-left of screen
 
         _n = self.doc.n_get_char_calls - _n0
@@ -158,44 +162,53 @@ class Display:
 
         self.scr.clear()        # move cursor to 0,0
 
-        cursor = (0, 0)
+        cursor = (0,0)
 
         start_pt = self.doc.get_point()
         start_pos = start_pt.position()
         pt_off = original_pt.position() - start_pos
         assert pt_off >= 0, "Point should always be on screen"
-        mark_off = (mark if mark else original_pt).position()  - start_pos
+        if mark:
+            mark_off = (mark.position() - start_pos)
+        else:
+            mark_off = pt_off
 
         highlight = mark_off < 0
 
         row = 0
-        while row < self.rows and not self.doc.at_end():
-            line = self.fmt.format_line()
+        while row < self.rows:
+            line, col_map = self.fmt.format_line()
             pt = self.doc.get_point()
-            delta = pt.distance_after(start_pt)
-            assert delta is not None
+            delta = len(col_map)
             start_pt = pt
-            toggle = bytearray(self.cols)
+            toggle_mark = -1
+            toggle_pt = -1
+            # found the point?
+            logging.info(f"delta {delta} pt_off {pt_off} end {self.doc.at_end()}")
             if 0 <= pt_off < delta:
-                if self.pin_preferred_col:
-                    assert pt_off == 0
-                    # deferred move forward to pinned column
-                    pt_off = self.fmt.offset_for_column(self.pin_preferred_col, line)
-                    assert pt_off < delta
+                # deferred move to preferred column?
+                if not at_end and self.pin_preferred_col:
+                    assert pt_off == 0, f"panic: pt_off={pt_off}"
+                    pt_off = self.fmt.offset_for_column(self.preferred_col, col_map)
                     original_pt = original_pt.move(pt_off)
-                col = self.fmt.column_for_offset(pt_off, line)
-                toggle[col] = 1 - toggle[col]
+                    if not mark:
+                        mark_off = pt_off
+                col = col_map[pt_off]
+                toggle_pt = col
                 cursor = (row, col)
 
             if 0 <= mark_off < delta:
-                col = self.fmt.column_for_offset(mark_off, line)
-                toggle[col] = 1 - toggle[col]
+                # found the mark?
+                col = col_map[mark_off]
+                toggle_mark = col
 
             pt_off -= delta
             mark_off -= delta
 
             for col, ch in enumerate(line):
-                if toggle[col]:
+                if toggle_pt == col:
+                    highlight = not highlight
+                if toggle_mark == col:
                     highlight = not highlight
                 match ch:
                     case 1: ch = ord('^')
@@ -209,7 +222,7 @@ class Display:
         self.doc.set_point(original_pt)
 
         if not self.pin_preferred_col:
-            self.preferred_col = cursor[1]
+            self.preferred_col = cursor[1] if not self.doc.at_end() else 0
         else:
             self.pin_preferred_col = False
 

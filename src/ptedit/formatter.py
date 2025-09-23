@@ -74,7 +74,7 @@ class Formatter:
         if i+1 < n:
             self.doc.set_point(self.bol_ladder[i+1])
         else:
-            # format and discard the line
+            # format and discard line to advance point
             self.format_line()
 
     def bol_to_prev_bol(self):
@@ -110,10 +110,12 @@ class Formatter:
 
     ### Internal glyph rendering for BoL calcs and painting
 
-    def format_line(self) -> bytes:
+    def format_line(self) -> tuple[bytes, list[int]]:
         r"""
         Convert doc characters to a string of exactly 'cols' bytes that can
         be directly mapped to screen display characters.
+        A column map is also returned which maps document offsets from BoL
+        to corresponding screen columns.
         Normally a byte corresponds to a single document character,
         but there are a few exceptions:
         - 0x00 indicates a padding space, with no corresponding character in the document
@@ -124,6 +126,8 @@ class Formatter:
         - whitespace bytes \t, \n and ' ' are normally be displayed as a single
           space (additional padding zero bytes will be added), but could be
           shown with a special character to indicate tabs or newlines.
+        - the end-of-document is marked with a 0x00 byte.  This is indistinguishable
+          from padding but is indexed in the column map for cursor placement.
 
         This representation makes it easy to compute the screen column
         given a document offset from BoL.
@@ -133,80 +137,66 @@ class Formatter:
         if pt not in self.bol_ladder:
             self.bol_ladder = Ladder([pt])
             logging.info(f'format_line reset to [{pt.position()}]')
+        extend_ladder = pt == self.bol_ladder[-1]
 
         wrap_col = 0
         wrap_point: Location | None = None
         line = b''
-        while len(line) < self.cols:
-            ch = ord(self.doc.next_char()[:1])
+        col_map: list[int] = []        # col_map[i] is column for document offset i
+        done = False
+        while len(line) < self.cols and not done:
+            done = self.doc.at_end()        # treat eod as printable 0
+            ch = ord(self.doc.next_char())
+            if done or 32 <= ch < 127 or ch in (ord('\t'), ord('\n')):
+                n = 0
+            else:
+                n = 1 if ch < 32 else 2
+                if len(line) >= self.cols - n:
+                    self.doc.move_point(-1)
+                    continue
 
-            if 32 <= ch < 127 or ch in (0, ord('\t'), ord('\n')):
-                if ch:
+            col_map.append(len(line))
+
+            # unget the char if escaped version won't fit
+            match n:
+                case 0:
                     line += bytes([ch])
-                if ch in (0, ord('\n'), ord('\t'), ord(' '), ord('-')):
-                    wrap_col = len(line)
-                    wrap_point = self.doc.get_point()
-                    if ch in (0, ord('\n')):
-                        break
-                    elif ch == ord('\t'):
-                        pad = (self.tab - len(line)) & (self.tab - 1)
-                        line += bytes(pad)
-            elif 0 < ch < 32:
-                if len(line) < self.cols-1:
+                    # wrappable?
+                    if ch in (0, ord('\n'), ord('\t'), ord(' '), ord('-')):
+                        wrap_col = len(line)
+                        wrap_point = self.doc.get_point()
+                        if ch == ord('\n'):
+                            done = True         # 0 already handled by at_end test
+                        elif ch == ord('\t'):
+                            pad = (self.tab - len(line)) & (self.tab - 1)
+                            line += bytes(pad)
+                case 1:
+                    # ctrl-escape, e.g. ^M
                     line += bytes([0x01, ch|0x40])
-                else:
-                    self.doc.move_point(-1)
-                    break
-            elif ch >= 127:
-                if len(line) < self.cols-2:
+                case _:
+                    # backslash-escape, e.g. \9E
                     line += bytes([0x02, hex_digits[ch // 16], hex_digits[ch%16]])
-                else:
-                    self.doc.move_point(-1)
-                    break
 
         if wrap_point:
             line = line[:wrap_col]
+            col_map = [c for c in col_map if c < wrap_col]
             self.doc.set_point(wrap_point)
 
-        if self.doc.get_point() not in self.bol_ladder:
-            self.bol_ladder.append(self.doc.get_point())
+        pt = self.doc.get_point()
+        if extend_ladder and pt != self.bol_ladder[-1]:
+            self.bol_ladder.append(pt)
 
         line += bytes(self.cols - len(line))
 
-        return line
+        return line, col_map
 
     @staticmethod
-    def column_for_offset(offset: int, line: bytes) -> int:
-        line = line.rstrip(b'\x00')
-
-        column = 0
-        while offset > 0 and column < len(line)-1:
-            match line[column]:
-                case 0x00:
-                    column += 1
-                case 0x01:
-                    column += 2
-                    offset -= 1
-                case 0x02:
-                    column += 3
-                    offset -= 1
-                case _:
-                    column += 1
-                    offset -= 1
-        return column
-
-    @staticmethod
-    def offset_for_column(column: int, line: bytes) -> int:
-        if column > len(line):
-            column = len(line)
-        offset = 0
-        i = 0
-        while i < column:
-            if line[i] != 0x00:
-                offset += 1
-            if line[i] < 0x03:      # skip 1 char for 0x1 and 2 for 0x2
-                i += line[i]
-            i += 1
+    def offset_for_column(column: int, col_map: list[int]) -> int:
+        if len(col_map) < 2:
+            return 0
+        offset = len(col_map) - 1
+        while offset and col_map[offset] > column:
+            offset -= 1
         return offset
 
     ### Internal beginning-of-line routines

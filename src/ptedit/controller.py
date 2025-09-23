@@ -180,7 +180,7 @@ class Controller:
         while time() - start < max_time:
             self.dpy.paint(self.ed.mark)
             frames += 1
-            logging.info(f'frame {frames}')
+            logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
             self.dpy.move_backward_line()

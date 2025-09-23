@@ -44,7 +44,7 @@ def test_preferred_col():
     while not doc.at_start():
         dpy.move_backward_line()
         dpy.paint()
-        assert doc.get_point() != pt
+        assert doc.get_point() != pt, f"failed at {pt.position()}"
         pt = doc.get_point()
 
 
