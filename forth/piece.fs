@@ -4,7 +4,7 @@ here .
 
 \ A piece is a string with a prev and next pointer
 \ with an 8 byte memory footprint.   Note 2! and 2@
-\ preserve memory order with the downward growing 
+\ preserve memory order with the downward growing
 \ data stack, so ( addr u ) 2@ matches the first four bytes
 \
 \   0      2      4      6
@@ -37,7 +37,7 @@ here .
 ;
 : piece>| ( u piece -- lpiece )       \ split left at u > 0
   dup 2 + @ -rot ( addr u piece )
-  6 + @ 0 ( addr u prev 0 ) 
+  6 + @ 0 ( addr u prev 0 )
   :piece
 ;
 : piece|< ( u piece -- rpiece )       \ split right at u > 0
@@ -46,18 +46,18 @@ here .
   :piece
 ;
 : piece. ( piece -- )   \ show a piece
-  [char] < emit space dup 6 + @ u. space 
+  [char] < emit space dup 6 + @ u. space
   dup 4 + @ u. [char] > emit 4 spaces
-  dup 2 + @ u. space 
+  dup 2 + @ u. space
   2@ type
 ;
-: pieces. ( piece -- )  \ show a list of pieces 
+: pieces. ( piece -- )  \ show a list of pieces
   begin
     dup u. dup piece> swap piece. cr ?dup 0=
   until
 ;
- 
-\ loc is just a double word ( i piece )
+
+\ loc is just a double word ( i piece ) which in memory is [ piece i ]
 \ so we don't use an explicit constructor (2@ and 2! are fine)
 
 : loc= ( loc loc' -- true|false )
@@ -75,21 +75,21 @@ here .
       drop piece> 0
     then
     swap
-  then 
+  then
 ;
 
 : loc+ ( i piece delta -- i' piece' )
-  ?dup if 
+  ?dup if
     rot +
     ( piece i' )
-dup if 
+dup if
   dup 0> if
     begin
       over piece# dup if   \ len(piece) > 0 ?
         2dup u< invert     \ i' >= len(piece) ?
         ( piece i' u f )
       else
-        swap 0             
+        swap 0
         ( piece 0 i' 0 )
       then
       while
@@ -100,13 +100,13 @@ dup if
     ( piece' i' )
   else
     begin
-      swap piece< swap over piece# 
+      swap piece< swap over piece#
       ( piece< i' n )
       dup if
-        + dup 0< 
+        + dup 0<
         ( piece< i'+n f )
-      else 
-        nip 0 
+      else
+        nip 0
         ( piece< 0 0 )
       then
       while
@@ -117,7 +117,7 @@ then
   then
   swap
   ( i' piece' )
-; 
+;
 
 cr here . cr
 
@@ -162,7 +162,7 @@ cr
   ." backward: "
   0 doc piece> piece> piece>
   begin
-    -1 loc+ 
+    -1 loc+
     2dup loc^ ?dup while
     emit
   repeat

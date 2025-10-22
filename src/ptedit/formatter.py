@@ -151,13 +151,13 @@ class Formatter:
                 n = 0
             else:
                 n = 1 if ch < 32 else 2
+                # unget the char if escaped version won't fit
                 if len(line) >= self.cols - n:
                     self.doc.move_point(-1)
                     break
 
             col_map.append(len(line))
 
-            # unget the char if escaped version won't fit
             match n:
                 case 0:
                     line += bytes([ch])

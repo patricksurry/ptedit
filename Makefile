@@ -22,8 +22,16 @@ ptedit.bin: ptedit.fs pteditasm.bin
 		dd if=../6502/tali/taliforth-c65.bin \
 	) > ptedit.bin
 
+# $3000 ptedit.fs
+# $4c00 ptedit.bin
+# $5000 alice
+# $8000 forth
+#
 # $3000 $1c00 evaluate
-# $
+# $5000 $2d00 :doc  \ Alice document
+# $4c30 execute `\ point_set_data
+
+
 # : test_move $f006 c@ $5000 $3000 1920 cmove $f007 c@ $f008 2@ ud. ;  ok
 # test_move 31784  ok (31fps; 16 cycles/char moved)
 # : test_type $f006 c@ $5000 1920 type $f007 c@ $f008 2@ ud. ;  ok
