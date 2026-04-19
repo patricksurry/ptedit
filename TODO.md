@@ -1,5 +1,7 @@
 core:
 
+- [ ] don't we know the point's line during find top?   could we likewise identify mark's line to simplify paint?
+
 - [ ] ? could we just track direction of mark from point easily so don't need to check?  (what about search?)
 
 
