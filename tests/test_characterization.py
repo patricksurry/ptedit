@@ -3,8 +3,6 @@ Characterization tests pinning behavior across the MVC refactor.
 These exercise the public API surface (key entry points used by Controller)
 so that the refactor is judged green/red purely by these + existing tests.
 """
-import pytest
-
 from ptedit import document, display, editor
 
 
@@ -59,11 +57,17 @@ def test_line_forward_back_preserves_column():
     assert doc.get_point().position() == pt_before
 
 
-@pytest.mark.skip("status moved to controller in Task 5")
 def test_status_message_contains_position_and_filename():
+    from ptedit.controller import Controller
     doc = document.Document('hello world')
     dpy = display.Display(doc, display.Screen(24, 80), fname='foo.txt')
-    s = dpy.status_message((0, 0))
+
+    class Stub:
+        fname = 'foo.txt'
+    stub = Stub()
+    stub.doc = doc
+    stub.dpy = dpy
+    s = Controller.status_message(stub, (0, 0))
     assert 'foo.txt' in s
     assert 'pos 0/11' in s
     assert 'lns 0/0' in s

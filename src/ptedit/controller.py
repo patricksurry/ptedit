@@ -74,7 +74,7 @@ class Controller:
         self.ed = Editor(
             self.doc,
             self.dpy.layout,
-            lambda msg, warn=False: self.dpy.show_message(msg, warn),
+            notify=self.dpy.show_message,
         )
         self.getch = stdscr.getch
         self.active = True
@@ -83,21 +83,21 @@ class Controller:
         printable = {k: k for k in range(32,127)}
         ed = self.ed
         dpy = self.dpy
+        layout = self.dpy.layout
         self.keymap: list[dict[ActionKey, Actionable]] = [
             # KeyMode.NORMAL
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
-                # TODO(Task 5): route line moves via Editor/notify instead of dpy.layout
-                curses.KEY_UP: dpy.layout.move_backward_line,
-                curses.KEY_DOWN: dpy.layout.move_forward_line,
+                curses.KEY_UP: layout.move_backward_line,
+                curses.KEY_DOWN: layout.move_forward_line,
                 curses.KEY_ENTER: ord('\n'),  # NL
                 curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
                 127: ed.delete_backward_char,
-                ctrl('A'): dpy.layout.move_start_line,
+                ctrl('A'): layout.move_start_line,
                 ctrl('B'): ed.move_backward_word,
                 ctrl('F'): ed.move_forward_word,
-                ctrl('E'): dpy.layout.move_end_line,
+                ctrl('E'): layout.move_end_line,
                 ctrl('D'): ed.delete_forward_char,
                 ctrl('I'): ord('\t'),           # tab
                 ctrl('J'): ord('\n'),           # newline
@@ -130,11 +130,10 @@ class Controller:
                 'after': KeyMode.NORMAL,
 
                 ctrl('['): ed.clear_mark,
-                # TODO(Task 5): route page moves via Editor/notify instead of dpy.layout
-                ord('a'): dpy.layout.move_backward_page,
+                ord('a'): layout.move_backward_page,
                 ord('b'): ed.move_backward_para,
                 ord('f'): ed.move_forward_para,
-                ord('e'): dpy.layout.move_forward_page,
+                ord('e'): layout.move_forward_page,
                 ord('A'): ed.move_start,
                 ord('E'): ed.move_end,
                 ord('m'): ed.set_mark,
@@ -150,9 +149,41 @@ class Controller:
             }
         ]
 
+    def status_message(self, cursor: tuple[int, int]) -> str:
+        if self.dpy.message:
+            status = self.dpy.message
+            self.dpy.message = ''
+        else:
+            pt = self.doc.get_point()
+            doc_data = self.doc.get_data()              # one walk only
+            pt_data = self.doc.get_data(None, pt)
+            doc_nl = doc_data.count('\n')
+            pt_nl = pt_data.count('\n')
+            fname = ('*' if self.doc.dirty else '') + f'{self.fname}'
+            pt_pieces, all_pieces = self.doc.piece_counts()
+            pt_edits, all_edits = self.doc.edit_counts()
+            status = "  ".join([
+                f"{fname}",
+                f"xy {cursor[1]},{cursor[0]}",
+                f"ch ${ord(self.doc.get_char() or chr(0)):02x}",
+                f"pos {pt.position()}/{len(self.doc)}",
+                f"lns {pt_nl}/{doc_nl}",
+                f"pcs {pt_pieces}/{all_pieces}",
+                f"eds {pt_edits}/{all_edits}",
+            ])
+
+        return " " + status
+
     def interactive(self):
         while self.active:
-            self.dpy.paint(self.ed.mark)
+            cursor = self.dpy.paint(self.ed.mark)
+            self.dpy.scr.move(self.dpy.rows, 0)
+            status = self.status_message(cursor)
+            status = (status[:self.dpy.cols] if len(status) >= self.dpy.cols
+                      else status + ' ' * (self.dpy.cols - len(status)))
+            self.dpy.scr.puts(status, highlight=True)
+            self.dpy.scr.move(*cursor)
+            self.dpy.scr.refresh()
             try:
                 key = self.getch()
                 logging.info(f'key ${key:02x}')
@@ -190,7 +221,6 @@ class Controller:
             logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
-            # TODO(Task 5): route via Editor/notify instead of dpy.layout
             self.dpy.layout.move_backward_line()
 
         cpf = self.doc.n_get_char_calls / frames
