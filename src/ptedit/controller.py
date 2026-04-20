@@ -70,7 +70,7 @@ class Controller:
         # use iso-8859-1 so that str <-> bytes is 1:1
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
         self.doc.watch(self.change_handler)
-        self.dpy = Display(self.doc, CursesScreen(stdscr), fname)
+        self.dpy = Display(self.doc, CursesScreen(stdscr))
         self.ed = Editor(
             self.doc,
             self.dpy.layout,
@@ -217,6 +217,7 @@ class Controller:
 
         while time() - start < max_time:
             self.dpy.paint(self.ed.mark)
+            self.dpy.scr.refresh()
             frames += 1
             logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))

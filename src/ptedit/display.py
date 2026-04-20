@@ -13,14 +13,12 @@ class Display:
             self,
             doc: Document,
             scr: Screen,
-            fname: str = '',
             guard_rows: int=3,
             preferred_row: int=0,
             tab: int=4,
         ):
         self.scr = scr
         self.doc = doc
-        self.fname = fname  # for status line
         self.rows = self.scr.height - 1     # one for status
         self.cols = self.scr.width
 
@@ -83,10 +81,11 @@ class Display:
 
         self.preferred_top = self.doc.get_point()
 
-    def paint(self, mark: Location|None=None, status: str=''):
+    def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
-        Paint the buffer to the screen, returning the new top-left location.
-        Leaves point unchanged. The caller supplies the status line.
+        Paint the buffer content to the screen, returning the cursor position.
+        Leaves point unchanged. The caller is responsible for the status line,
+        restoring the cursor, and refreshing the screen.
         """
         _n0 = self.doc.n_get_char_calls
 
@@ -165,14 +164,6 @@ class Display:
             self.layout.preferred_col = cursor[1] if not self.doc.at_end() else 0
         else:
             self.layout.pin_preferred_col = False
-
-        status = (status[:self.cols] if len(status) >= self.cols
-                  else status + ' ' * (self.cols - len(status)))
-        self.scr.move(self.rows, 0)
-        self.scr.puts(status, highlight=True)
-
-        self.scr.move(*cursor)
-        self.scr.refresh()
 
         _n = self.doc.n_get_char_calls - _n - _n0
         logging.info(f'paint end {len(self.layout.bol_ladder)} bol {_n} chars')

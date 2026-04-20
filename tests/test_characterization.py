@@ -60,7 +60,7 @@ def test_line_forward_back_preserves_column():
 def test_status_message_contains_position_and_filename():
     from ptedit.controller import Controller
     doc = document.Document('hello world')
-    dpy = display.Display(doc, display.Screen(24, 80), fname='foo.txt')
+    dpy = display.Display(doc, display.Screen(24, 80))
 
     class Stub:
         fname = 'foo.txt'
