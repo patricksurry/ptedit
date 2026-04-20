@@ -26,17 +26,28 @@ def test_line_forward_back_preserves_column():
     """
     move_forward_line + move_backward_line round-trip preserves position
     when paint() runs in between to resolve pin_preferred_col.
-    The column carried via preferred_col is stable across symmetric moves.
+
+    The middle line 'a' is shorter than the requested column, so paint()
+    must clamp the cursor there.  preferred_col must be preserved across
+    that clamp so the surrounding longer lines snap back to column 3.
+    A buggy implementation that overwrites preferred_col with the post-clamp
+    cursor column would land at column 1 (or 0) of the outer lines instead.
     """
-    doc, dpy = make_dpy('one\ntwo\nthree\nfour\nfive\nsix\n')
-    doc.move_point(5)  # column 1 of 'two'
-    dpy.paint()         # seeds preferred_col from current cursor column
-    pt = doc.get_point()
+    doc, dpy = make_dpy('three\na\nseven!!\n')
+    doc.move_point(3)   # column 3 ('e') of 'three'
+    dpy.paint()         # seeds preferred_col=3 from current cursor column
+    pt_before = doc.get_point().position()
+    assert pt_before == 3
     dpy.move_forward_line()
-    dpy.paint()
+    dpy.paint()         # on 'a' line; cursor must clamp, preferred_col stays 3
+    dpy.move_forward_line()
+    dpy.paint()         # on 'seven!!'; should snap to column 3 -> pos 11
+    assert doc.get_point().position() == 11
     dpy.move_backward_line()
-    dpy.paint()
-    assert doc.get_point().position() == pt.position()
+    dpy.paint()         # back on 'a' line; clamp again, preferred_col stays 3
+    dpy.move_backward_line()
+    dpy.paint()         # back on 'three'; should restore column 3
+    assert doc.get_point().position() == pt_before
 
 
 def test_status_message_contains_position_and_filename():
@@ -67,4 +78,4 @@ def test_isearch_message_set_on_search():
     ed.isearch_forward()         # opens isearch
     ed.insert(ord('q'))          # adds to search
     # The display message should reflect the search prompt
-    assert 'Search' in dpy.message or 'quick' in doc.get_data()
+    assert 'Search' in dpy.message
