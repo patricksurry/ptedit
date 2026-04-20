@@ -88,13 +88,13 @@ class Edit:
     @property
     def before(self) -> Piece:
         p = self.exclude_first.prev if not self.exclude_empty else self.exclude_last
-        assert p
+        assert p is not None
         return p
 
     @property
     def after(self) -> Piece:
         p = self.exclude_last.next if not self.exclude_empty else self.exclude_first
-        assert p
+        assert p is not None
         return p
 
     @classmethod
@@ -107,7 +107,7 @@ class Edit:
             left, right = (loc, pt) if delete < 0 else (pt, loc)
 
         exclude_first, exclude_last = left.piece, right.piece if right.offset else right.piece.prev
-        assert exclude_first and exclude_last
+        assert exclude_first is not None and exclude_last is not None
 
         pre = left.piece.lsplit(left.offset) if left.offset else None
         post = right.piece.rsplit(right.offset) if right.offset else None
@@ -123,8 +123,8 @@ class Edit:
         if self.prev is None or pt != self.get_change_end():
             compatible = False
         elif delete:
-            p = self.post if delete > 0 else (self.ins or self.pre)
-            if not p or len(p) <= abs(delete):
+            p = self.post if delete > 0 else (self.ins if self.ins is not None else self.pre)
+            if p is None or len(p) <= abs(delete):
                 compatible = False
             else:
                 p.trim(delete)
@@ -133,12 +133,12 @@ class Edit:
             return self.append(self.create(pt, delete, insert))
 
         if insert:
-            if self.ins:
+            if self.ins is not None:
                 self.ins.extend(insert)
             else:
                 self.ins = PrimaryPiece(data=insert)
-                Piece.link(self.pre or self.before, self.ins)
-                Piece.link(self.ins, self.post or self.after)
+                Piece.link(self.pre if self.pre is not None else self.before, self.ins)
+                Piece.link(self.ins, self.post if self.post is not None else self.after)
 
         return self
 
@@ -158,8 +158,18 @@ class Edit:
     def redo(self) -> Location:
         """Redo this edit"""
         assert not self._applied, "redo: Edit already applied"
-        self.before.next = self.pre or self.ins or self.post or self.after
-        self.after.prev = self.post or self.ins or self.pre or self.before
+        self.before.next = (
+            self.pre if self.pre is not None
+            else self.ins if self.ins is not None
+            else self.post if self.post is not None
+            else self.after
+        )
+        self.after.prev = (
+            self.post if self.post is not None
+            else self.ins if self.ins is not None
+            else self.pre if self.pre is not None
+            else self.before
+        )
         self._applied = True
         return self.get_change_end()
 

@@ -87,17 +87,10 @@ class Display:
         Leaves point unchanged. The caller is responsible for the status line,
         restoring the cursor, and refreshing the screen.
         """
-        _n0 = self.doc.n_get_char_calls
-
-        logging.info(f'paint top {len(self.layout.bol_ladder)} bol')
-
         original_pt = self.doc.get_point()
         at_end = self.doc.at_end()
 
         self.find_top()         # move point to show at top-left of screen
-
-        _n = self.doc.n_get_char_calls - _n0
-        logging.info(f'paint glyphs {len(self.layout.bol_ladder)} bol {_n} chars, top/pt {self.doc.get_point().position()}/{original_pt.position()}')
 
         self.scr.clear()        # move cursor to 0,0
 
@@ -164,9 +157,6 @@ class Display:
             self.layout.preferred_col = cursor[1] if not self.doc.at_end() else 0
         else:
             self.layout.pin_preferred_col = False
-
-        _n = self.doc.n_get_char_calls - _n - _n0
-        logging.info(f'paint end {len(self.layout.bol_ladder)} bol {_n} chars')
 
         return cursor
 

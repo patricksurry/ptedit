@@ -210,22 +210,17 @@ class Controller:
     def change_handler(self, start: Location, end: Location):
         self.autosave()
 
-    def perftest(self, max_time: float=1.0) -> str:
+    def perftest(self, max_time: float = 1.0) -> str:
         self.ed.move_end()
         frames = 0
         start = time()
-
         while time() - start < max_time:
             self.dpy.paint(self.ed.mark)
-            self.dpy.scr.refresh()
             frames += 1
-            logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
             self.dpy.layout.move_backward_line()
-
-        cpf = self.doc.n_get_char_calls / frames
-        return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
+        return f"Repainted {frames} frames in {time()-start:0.1f}s"
 
     def dispatch(self, key: int):
         """Handle an ascii keypress"""

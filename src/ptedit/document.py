@@ -55,7 +55,6 @@ class Document:
         self._start: Piece = PrimaryPiece(allow_empty=True)
         self._end: Piece = PrimaryPiece(allow_empty=True)
         self.dirty = False
-        self._n_get_char_calls = 0  # for performance testing
         self._reset(s)
 
     def _reset(self, s: str):
@@ -132,13 +131,8 @@ class Document:
 
     def get_char(self) -> str:
         """Return character after point, without moving point"""
-        self._n_get_char_calls += 1
         offset = self._point.offset
         return self._point.piece.data[offset:offset+1] or '\0'
-
-    @property
-    def n_get_char_calls(self) -> int:
-        return self._n_get_char_calls
 
     def next_char(self) -> str:
         """Return character after point and advance point"""
@@ -291,7 +285,7 @@ class Document:
     def __str__(self):
         p = self._start.next
         s: str = ''
-        while p:
+        while p is not None:
             s += '|'
             if self._point.piece == p:
                 s += p.data[:self._point.offset] + '^' + p.data[self._point.offset:]
