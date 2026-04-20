@@ -49,36 +49,6 @@ class Display:
             self.scr.alert()
             logging.warning(msg)
 
-    def move_start_line(self):     self.layout.move_start_line()
-    def move_end_line(self):       self.layout.move_end_line()
-    def move_forward_line(self):   self.layout.move_forward_line()
-    def move_backward_line(self):  self.layout.move_backward_line()
-    def move_forward_page(self):   self.layout.move_forward_page()
-    def move_backward_page(self):  self.layout.move_backward_page()
-
-    def status_message(self, cursor: tuple[int, int]) -> str:
-        if self.message:
-            status = self.message
-            self.message = ''
-        else:
-            pt = self.doc.get_point()
-            doc_nl = self.doc.get_data().count('\n')
-            pt_nl = self.doc.get_data(None, pt).count('\n')
-            fname = ('*' if self.doc.dirty else '') + f'{self.fname}'
-            pt_pieces, all_pieces = self.doc.piece_counts()
-            pt_edits, all_edits = self.doc.edit_counts()
-            status = "  ".join([
-                f"{fname}",
-                f"xy {cursor[1]},{cursor[0]}",
-                f"ch ${ord(self.doc.get_char() or '\0'):02x}",
-                f"pos {pt.position()}/{len(self.doc)}",
-                f"lns {pt_nl}/{doc_nl}",
-                f"pcs {pt_pieces}/{all_pieces}",
-                f"eds {pt_edits}/{all_edits}",
-            ])
-
-        return " " + status + " " * (self.cols - len(status))
-
     def find_top(self):
         """
         Move the point to the top left of the screen,
@@ -113,10 +83,10 @@ class Display:
 
         self.preferred_top = self.doc.get_point()
 
-    def paint(self, mark: Location|None=None):
+    def paint(self, mark: Location|None=None, status: str=''):
         """
         Paint the buffer to the screen, returning the new top-left location.
-        Leaves point unchanged.
+        Leaves point unchanged. The caller supplies the status line.
         """
         _n0 = self.doc.n_get_char_calls
 
@@ -196,7 +166,8 @@ class Display:
         else:
             self.layout.pin_preferred_col = False
 
-        status = self.status_message(cursor)
+        status = (status[:self.cols] if len(status) >= self.cols
+                  else status + ' ' * (self.cols - len(status)))
         self.scr.move(self.rows, 0)
         self.scr.puts(status, highlight=True)
 
@@ -205,4 +176,6 @@ class Display:
 
         _n = self.doc.n_get_char_calls - _n - _n0
         logging.info(f'paint end {len(self.layout.bol_ladder)} bol {_n} chars')
+
+        return cursor
 

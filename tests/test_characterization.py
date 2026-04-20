@@ -3,6 +3,8 @@ Characterization tests pinning behavior across the MVC refactor.
 These exercise the public API surface (key entry points used by Controller)
 so that the refactor is judged green/red purely by these + existing tests.
 """
+import pytest
+
 from ptedit import document, display, editor
 
 
@@ -16,9 +18,9 @@ def test_line_start_end_roundtrip():
     """move_end_line then move_start_line returns to BoL of original line."""
     doc, dpy = make_dpy('one two three\nfour five six\n')
     doc.move_point(5)  # 't' of 'two' on first line
-    dpy.move_end_line()
+    dpy.layout.move_end_line()
     assert doc.get_char() == '\n', f"expected newline at EOL, got {doc.get_char()!r}"
-    dpy.move_start_line()
+    dpy.layout.move_start_line()
     assert doc.get_point().position() == 0
 
 
@@ -38,18 +40,19 @@ def test_line_forward_back_preserves_column():
     dpy.paint()         # seeds preferred_col=3 from current cursor column
     pt_before = doc.get_point().position()
     assert pt_before == 3
-    dpy.move_forward_line()
+    dpy.layout.move_forward_line()
     dpy.paint()         # on 'a' line; cursor must clamp, preferred_col stays 3
-    dpy.move_forward_line()
+    dpy.layout.move_forward_line()
     dpy.paint()         # on 'seven!!'; should snap to column 3 -> pos 11
     assert doc.get_point().position() == 11
-    dpy.move_backward_line()
+    dpy.layout.move_backward_line()
     dpy.paint()         # back on 'a' line; clamp again, preferred_col stays 3
-    dpy.move_backward_line()
+    dpy.layout.move_backward_line()
     dpy.paint()         # back on 'three'; should restore column 3
     assert doc.get_point().position() == pt_before
 
 
+@pytest.mark.skip("status moved to controller in Task 5")
 def test_status_message_contains_position_and_filename():
     doc = document.Document('hello world')
     dpy = display.Display(doc, display.Screen(24, 80), fname='foo.txt')

@@ -21,9 +21,9 @@ def test_frame():
 def test_wrap():
     doc = document.Document('the\t quick brown fox\njumps \tover the lazy dog')
     dpy = display.Display(doc, display.Screen(24, 16))
-    dpy.move_forward_line()
+    dpy.layout.move_forward_line()
     assert doc.get_point().position() == 11
-    dpy.move_forward_line()
+    dpy.layout.move_forward_line()
     assert doc.get_point().position() == 21
 
 
@@ -36,13 +36,13 @@ def test_preferred_col():
 
     pt = doc.get_point()
     while not doc.at_end():
-        dpy.move_forward_line()
+        dpy.layout.move_forward_line()
         dpy.paint()
         assert doc.get_point() != pt
         pt = doc.get_point()
 
     while not doc.at_start():
-        dpy.move_backward_line()
+        dpy.layout.move_backward_line()
         dpy.paint()
         assert doc.get_point() != pt, f"failed at {pt.position()}"
         pt = doc.get_point()
@@ -55,7 +55,7 @@ def test_paint():
 
     # forward page+
     for _ in range(32):
-        dpy.move_forward_line()
+        dpy.layout.move_forward_line()
     dpy.paint()
 
     doc.set_point_end()
@@ -63,7 +63,7 @@ def test_paint():
 
     # backward page+
     for _ in range(32):
-        dpy.move_backward_line()
+        dpy.layout.move_backward_line()
     dpy.paint()
 
     doc.set_point_end()
@@ -77,7 +77,7 @@ def test_end():
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
     doc.move_point(-1)
-    dpy.move_backward_line()
+    dpy.layout.move_backward_line()
 
     assert not doc.at_end()
     dpy.paint()

@@ -207,9 +207,10 @@ class Editor:
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
-        self.pager.move_start_line()
+        # TODO(Task 4): replace self.pager with a layout + notify callback
+        self.pager.layout.move_start_line()
         self.mark = self.doc.get_point()
-        self.pager.move_end_line()
+        self.pager.layout.move_end_line()
         self.move_forward_char()
         return self._clip_region(cut)
 

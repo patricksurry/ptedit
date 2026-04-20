@@ -84,15 +84,16 @@ class Controller:
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
-                curses.KEY_UP: dpy.move_backward_line,
-                curses.KEY_DOWN: dpy.move_forward_line,
+                # TODO(Task 4): route line moves via Editor/notify instead of dpy.layout
+                curses.KEY_UP: dpy.layout.move_backward_line,
+                curses.KEY_DOWN: dpy.layout.move_forward_line,
                 curses.KEY_ENTER: ord('\n'),  # NL
                 curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
                 127: ed.delete_backward_char,
-                ctrl('A'): dpy.move_start_line,
+                ctrl('A'): dpy.layout.move_start_line,
                 ctrl('B'): ed.move_backward_word,
                 ctrl('F'): ed.move_forward_word,
-                ctrl('E'): dpy.move_end_line,
+                ctrl('E'): dpy.layout.move_end_line,
                 ctrl('D'): ed.delete_forward_char,
                 ctrl('I'): ord('\t'),           # tab
                 ctrl('J'): ord('\n'),           # newline
@@ -125,10 +126,11 @@ class Controller:
                 'after': KeyMode.NORMAL,
 
                 ctrl('['): ed.clear_mark,
-                ord('a'): dpy.move_backward_page,
+                # TODO(Task 4): route page moves via Editor/notify instead of dpy.layout
+                ord('a'): dpy.layout.move_backward_page,
                 ord('b'): ed.move_backward_para,
                 ord('f'): ed.move_forward_para,
-                ord('e'): dpy.move_forward_page,
+                ord('e'): dpy.layout.move_forward_page,
                 ord('A'): ed.move_start,
                 ord('E'): ed.move_end,
                 ord('m'): ed.set_mark,
@@ -184,7 +186,8 @@ class Controller:
             logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
-            self.dpy.move_backward_line()
+            # TODO(Task 4): route via Editor/notify instead of dpy.layout
+            self.dpy.layout.move_backward_line()
 
         cpf = self.doc.n_get_char_calls / frames
         return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
