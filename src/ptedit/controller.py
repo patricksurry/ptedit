@@ -88,7 +88,7 @@ class Controller:
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
-                # TODO(Task 4): route line moves via Editor/notify instead of dpy.layout
+                # TODO(Task 5): route line moves via Editor/notify instead of dpy.layout
                 curses.KEY_UP: dpy.layout.move_backward_line,
                 curses.KEY_DOWN: dpy.layout.move_forward_line,
                 curses.KEY_ENTER: ord('\n'),  # NL
@@ -130,7 +130,7 @@ class Controller:
                 'after': KeyMode.NORMAL,
 
                 ctrl('['): ed.clear_mark,
-                # TODO(Task 4): route page moves via Editor/notify instead of dpy.layout
+                # TODO(Task 5): route page moves via Editor/notify instead of dpy.layout
                 ord('a'): dpy.layout.move_backward_page,
                 ord('b'): ed.move_backward_para,
                 ord('f'): ed.move_forward_para,
@@ -190,7 +190,7 @@ class Controller:
             logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
-            # TODO(Task 4): route via Editor/notify instead of dpy.layout
+            # TODO(Task 5): route via Editor/notify instead of dpy.layout
             self.dpy.layout.move_backward_line()
 
         cpf = self.doc.n_get_char_calls / frames
