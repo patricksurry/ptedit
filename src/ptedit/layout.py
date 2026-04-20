@@ -23,18 +23,57 @@ class Ladder(deque[Location]):
         )
 
 
-class Formatter:
-    def __init__(self, doc: Document, cols: int, rungs: int, tab: int=4):
+class Layout:
+    def __init__(self, doc: Document, cols: int, rows: int, rungs: int, tab: int=4):
         self.doc = doc
 
         assert (cols // tab) * tab == cols, "tab should divide cols"
 
         self.cols = cols
+        self.rows = rows
         self.rungs = rungs
         self.tab = tab
 
         self.bol_ladder = Ladder()      # cached beginning of line marks
+        self.preferred_col = 0          # last column that wasn't
+        self.pin_preferred_col = False  # True if cursor should track preferred col
         self.wrap_lookahead: bool
+
+    # ----- line moves (absorbed from Display) -----
+
+    def move_start_line(self):
+        self.clamp_to_bol()
+
+    def move_end_line(self):
+        self.clamp_to_bol()
+        self.bol_to_next_bol()
+        if not self.doc.at_end():
+            self.doc.move_point(-1)
+
+    def move_forward_line(self):
+        self.clamp_to_bol()
+        if not self.doc.at_end():
+            self.bol_to_next_bol()
+            # defer column setting until we render the line with the point
+            self.pin_preferred_col = True
+
+    def move_backward_line(self):
+        self.clamp_to_bol()
+        if not self.doc.at_start():
+            self.bol_to_prev_bol()
+            self.pin_preferred_col = True
+
+    def move_forward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.rows):
+            self.bol_to_next_bol()
+        self.pin_preferred_col = True
+
+    def move_backward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.rows):
+            self.bol_to_prev_bol()
+        self.pin_preferred_col = True
 
     def change_handler(self, start: Location, end: Location):
         self.rescue_ladder(start)

@@ -1,9 +1,9 @@
-from ptedit import document, formatter
+from ptedit import document, layout
 
 
 def test_bol():
     doc = document.Document('the big\t 012345678901234567890123456789 number')
-    fmt = formatter.Formatter(doc, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, 8)
 
     assert doc.at_start()
     fmt.bol_to_next_bol()
@@ -16,7 +16,7 @@ def test_bol():
 
 def test_format():
     doc = document.Document('the \tbig\t 012345678901234567890123456789\r\x01 number\x7f')
-    fmt = formatter.Formatter(doc, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, 8)
     assert fmt.format_line()[0] == b'the \t\0\0\0big\t ' + bytes(11)
     assert fmt.format_line()[0] == b'012345678901234567890123'
     assert fmt.format_line()[0] == b'456789\x01M\x01A number\x027F' + bytes(4)
@@ -24,7 +24,7 @@ def test_format():
 
 def test_column_for_offset():
     doc = document.Document('456789\r\x01 number\x7f')
-    fmt = formatter.Formatter(doc, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, 8)
     line, col_map = fmt.format_line()
     # source data:   456789.. number.#
     #                012345678901234567890123
@@ -40,14 +40,14 @@ def test_column_for_offset():
 
 def test_offset_for_column():
     doc = document.Document('456789\r\x01')
-    fmt = formatter.Formatter(doc, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, 8)
     line, col_map = fmt.format_line()
     assert line == b'456789\x01M\x01A' + bytes(14)
-    assert formatter.Formatter.offset_for_column(0, col_map) == 0
-    assert formatter.Formatter.offset_for_column(5, col_map) == 5
-    assert formatter.Formatter.offset_for_column(6, col_map) == 6  # ^
-    assert formatter.Formatter.offset_for_column(7, col_map) == 6  # M
-    assert formatter.Formatter.offset_for_column(8, col_map) == 7  # ^
-    assert formatter.Formatter.offset_for_column(9, col_map) == 7  # A
-    assert formatter.Formatter.offset_for_column(10, col_map) == 8  # eod
-    assert formatter.Formatter.offset_for_column(99, col_map) == 8  # eod
+    assert layout.Layout.offset_for_column(0, col_map) == 0
+    assert layout.Layout.offset_for_column(5, col_map) == 5
+    assert layout.Layout.offset_for_column(6, col_map) == 6  # ^
+    assert layout.Layout.offset_for_column(7, col_map) == 6  # M
+    assert layout.Layout.offset_for_column(8, col_map) == 7  # ^
+    assert layout.Layout.offset_for_column(9, col_map) == 7  # A
+    assert layout.Layout.offset_for_column(10, col_map) == 8  # eod
+    assert layout.Layout.offset_for_column(99, col_map) == 8  # eod

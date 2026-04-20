@@ -32,7 +32,7 @@ def test_preferred_col():
     dpy = display.Display(doc, display.Screen(24, 80))
     doc.move_point(10)
     dpy.paint()
-    assert dpy.preferred_col == 10
+    assert dpy.layout.preferred_col == 10
 
     pt = doc.get_point()
     while not doc.at_end():
