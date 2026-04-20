@@ -14,6 +14,13 @@ def make_dpy(text: str, rows: int = 24, cols: int = 80):
     return doc, dpy
 
 
+def make_editor(text: str, rows: int = 24, cols: int = 80):
+    doc = document.Document(text)
+    dpy = display.Display(doc, display.Screen(rows, cols))
+    ed = editor.Editor(doc, dpy.layout, lambda msg, warn=False: dpy.show_message(msg, warn))
+    return doc, dpy, ed
+
+
 def test_line_start_end_roundtrip():
     """move_end_line then move_start_line returns to BoL of original line."""
     doc, dpy = make_dpy('one two three\nfour five six\n')
@@ -63,9 +70,7 @@ def test_status_message_contains_position_and_filename():
 
 
 def test_clip_line_roundtrip():
-    doc = document.Document('alpha\nbravo\ncharlie\n')
-    dpy = display.Display(doc, display.Screen(24, 80))
-    ed = editor.Editor(doc, dpy)
+    doc, dpy, ed = make_editor('alpha\nbravo\ncharlie\n')
     doc.move_point(8)  # inside 'bravo'
     ed.cut_line()
     assert ed.clipboard == 'bravo\n'
@@ -75,9 +80,7 @@ def test_clip_line_roundtrip():
 
 
 def test_isearch_message_set_on_search():
-    doc = document.Document('the quick brown fox')
-    dpy = display.Display(doc, display.Screen(24, 80))
-    ed = editor.Editor(doc, dpy)
+    doc, dpy, ed = make_editor('the quick brown fox')
     ed.isearch_forward()         # opens isearch
     ed.insert(ord('q'))          # adds to search
     # The display message should reflect the search prompt

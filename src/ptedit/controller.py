@@ -71,7 +71,11 @@ class Controller:
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
         self.doc.watch(self.change_handler)
         self.dpy = Display(self.doc, CursesScreen(stdscr), fname)
-        self.ed = Editor(self.doc, self.dpy)
+        self.ed = Editor(
+            self.doc,
+            self.dpy.layout,
+            lambda msg, warn=False: self.dpy.show_message(msg, warn),
+        )
         self.getch = stdscr.getch
         self.active = True
 
