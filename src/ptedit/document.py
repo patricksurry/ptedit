@@ -220,9 +220,11 @@ class Document:
         """
         assert len(pattern) != 0, "find_backward: expected non-empty string"
 
-        match = self.get_point().position() <= len(pattern)
+        if self.get_point().position() < len(pattern):
+            return False
         self.move_point(-len(pattern))
         pt = self.get_point()
+        match = False
         while not match and not pt.is_start():
             pt = pt.move(-1)
             self.set_point(pt)

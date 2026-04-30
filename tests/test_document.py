@@ -101,3 +101,11 @@ def test_find_not_char_backward():
     doc.move_point(-1)
     assert doc.get_char() == 'o'
 
+
+def test_find_backward_short_doc_returns_false_when_no_match():
+    doc = document.Document('hi')
+    doc.set_point_end()
+    assert doc.find_backward('xyz', document.MatchMode.EXACT_CASE) is False
+    # point should not have moved past start
+    assert doc.at_end()  # early return: point unmoved when not enough chars
+
