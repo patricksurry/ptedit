@@ -189,7 +189,7 @@ class Document:
         see 9.13.4.1 Moving by Words
         """
         match = False
-        while match and not self.at_start():
+        while not match and not self.at_start():
             match = self.prev_char() not in chars
         if match:
             self.move_point(1)
