@@ -206,10 +206,10 @@ class Editor:
         self.clipboard = self._clip_region(cut=True)
 
     def paste(self):
-        self._delete_region()
         if not self.clipboard:
             self.notify('Clipboard empty', True)
             return
+        self._delete_region()
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
