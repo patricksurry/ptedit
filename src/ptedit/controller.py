@@ -210,17 +210,58 @@ class Controller:
     def change_handler(self, start: Location, end: Location):
         self.autosave()
 
-    def perftest(self, max_time: float = 1.0) -> str:
-        self.ed.move_end()
+    def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:
+        runners = {
+            'insert':        self._perf_insert_loop,
+            'up_from_end':   self._perf_up_from_end,
+            'pgup_from_end': self._perf_pgup_from_end,
+            'pgdn_from_top': self._perf_pgdn_from_top,
+        }
+        if scenario not in runners:
+            return f"unknown scenario: {scenario}; choices: {list(runners)}"
+        return runners[scenario](max_time)
+
+    def _run(self, max_time: float, step) -> str:
         frames = 0
         start = time()
         while time() - start < max_time:
             self.dpy.paint(self.ed.mark)
             frames += 1
+            step()
+        elapsed = time() - start
+        return f"{frames} frames in {elapsed:0.2f}s = {frames/elapsed:.0f} fps"
+
+    def _perf_insert_loop(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
             self.dpy.layout.move_backward_line()
-        return f"Repainted {frames} frames in {time()-start:0.1f}s"
+        return self._run(max_time, step)
+
+    def _perf_up_from_end(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
+            if self.doc.at_start():
+                self.ed.move_end()
+            self.dpy.layout.move_backward_line()
+        return self._run(max_time, step)
+
+    def _perf_pgup_from_end(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
+            if self.doc.at_start():
+                self.ed.move_end()
+            self.dpy.layout.move_backward_page()
+        return self._run(max_time, step)
+
+    def _perf_pgdn_from_top(self, max_time: float) -> str:
+        self.ed.move_start()
+        def step():
+            if self.doc.at_end():
+                self.ed.move_start()
+            self.dpy.layout.move_forward_page()
+        return self._run(max_time, step)
 
     def dispatch(self, key: int):
         """Handle an ascii keypress"""
