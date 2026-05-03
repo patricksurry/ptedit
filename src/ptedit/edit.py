@@ -59,6 +59,11 @@ class Edit:
         # preserve the original links for undo
         self.exclude_first: Piece = exclude_first
         self.exclude_last: Piece = exclude_last
+        # exclude_empty: pure insertion has no fragment between two pieces.
+        # before/after then bracket the gap rather than the (non-existent) excluded fragment.
+        # Materializing a zero-length pre/post would unify the shape but would require
+        # SecondaryPieces of length 0, which clashes with the invariant that only the two
+        # sentinel pieces have length 0.
         self.exclude_empty = exclude_first == exclude_last.next
 
         assert exclude_first is not None and exclude_last.next is not None
