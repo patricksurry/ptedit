@@ -154,10 +154,17 @@ class Editor:
     def toggle_overwrite(self):
         self.overwrite_mode = not self.overwrite_mode
 
-    def _delete_region(self):
-        """Helper to kill marked region, if any, prior to other edits"""
-        if self.mark:
-            _ = self._clip_region(cut=True)
+    def _kill_region(self):
+        """Delete marked region in place; does NOT touch the clipboard."""
+        if self.mark is None:
+            return
+        a, b = self.mark, self.doc.get_point()
+        if b.is_at_or_before(a):
+            a, b = b, a
+        n = b.position() - a.position()
+        self.doc.set_point(b)
+        self.doc.delete(-n)
+        self.mark = None
 
     def _clip_region(self, cut: bool=False) -> str:
         """Cut or copy marked region, error if no mark"""
@@ -182,21 +189,21 @@ class Editor:
         if self.isearch_dir is not None:
             self._isearch_insert(c)
         else:
-            self._delete_region()
+            self._kill_region()
             if self.overwrite_mode:
                 self.doc.replace(c)
             else:
                 self.doc.insert(c)
 
     def delete_forward_char(self):
-        self._delete_region()
+        self._kill_region()
         self.doc.delete(1)
 
     def delete_backward_char(self):
         if self.isearch_dir is not None:
             self._isearch_delete()
         else:
-            self._delete_region()
+            self._kill_region()
             self.doc.delete(-1)
 
     def copy(self):
@@ -209,7 +216,7 @@ class Editor:
         if not self.clipboard:
             self.notify('Clipboard empty', True)
             return
-        self._delete_region()
+        self._kill_region()
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
