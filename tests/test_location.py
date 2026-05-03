@@ -84,3 +84,18 @@ def test_find_char_backward():
     assert not doc.find_char_backward('f')
     assert doc.get_char() == 't'  # failed
     assert doc.at_start()
+
+
+def test_sentinel_checks_length_zero():
+    from ptedit import document
+    doc = document.Document('abc')
+    pt = doc.get_point()
+    assert pt.is_start()
+    # the sentinel previous to the first real piece must have length 0
+    assert len(pt.piece.prev) == 0
+
+    doc.set_point_end()
+    pt = doc.get_point()
+    assert pt.is_end()
+    # at the end sentinel itself
+    assert len(pt.piece) == 0
