@@ -28,3 +28,17 @@ walk many display lines forward and benefit from cached BoLs from prior
 frames). Discarded `experiment/no-ladder`, kept the ladder. Proceed to
 Task 15 (simplify `rescue_ladder` by full invalidation) and skip Task
 16 (per-piece nl_count is dwarfed by ladder cost).
+
+## Task 15: full invalidation instead of rescue_ladder
+
+| scenario       | baseline fps | invalidate fps | ratio |
+|----------------|--------------|----------------|-------|
+| insert         | 229          | 143            | 62%   |
+| up_from_end    | 491          | 490            | 100%  |
+| pgup_from_end  | 212          | 211            | 100%  |
+| pgdn_from_top  | 329          | 326            | 99%   |
+
+Only `insert` regresses (each keystroke invalidates the cache, next
+paint rebuilds). 143 fps is still well above human-noticeable for
+typing latency, and the simplification removes ~50 lines of subtle
+position-arithmetic code in `rescue_ladder`. Kept.

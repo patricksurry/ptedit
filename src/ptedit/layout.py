@@ -76,7 +76,9 @@ class Layout:
         self.pin_preferred_col = True
 
     def change_handler(self, start: Location, end: Location):
-        self.rescue_ladder(start)
+        # Any document change invalidates the BoL cache; it'll repopulate on the
+        # next paint via ladder_point + bol_to_next_bol. Simpler than rescue.
+        self.bol_ladder = Ladder()
 
     def clamp_to_bol(self):
         """
@@ -271,58 +273,3 @@ class Layout:
 
         assert self.bol_ladder.brackets(pt)
 
-    def rescue_ladder(self, start: Location):
-        """
-        After most changes we can rescue most of the cached BoL marks.
-        We need to recreate them based on position relative to the start
-        of the document because the Location objects themselves might
-        no longer be valid as when swapped out of the piece chain.
-        We need to make sure to re-bracket the point, and don't
-        bother if the movement was too large.
-        """
-        # anything to rescue?
-        if not self.bol_ladder:
-            return
-
-        bols = self.bol_ladder
-        self.bol_ladder = Ladder()
-        logging.info(f'rescue_ladder {len(self.bol_ladder)} bol, first/last/edit/pt {bols[0].position()}/{bols[-1].position()}/{start.position()}/{self.doc.get_point().position()}')
-
-        # give up if start is before the first BoL or too far from point
-        if (
-            start.position() < bols[0].position() + self.cols
-            or bols[-1].position() + self.cols * self.rungs < start.position()
-        ):
-            return
-
-        # reconstruct BoL up to the start of the change
-        # use position relative to start
-        # how far is the first BoL from the start of the change?
-        for i,b in enumerate(bols):
-            logging.info(f"ladder {i}: {b} {b.position()}")
-        prev = bols.popleft()
-        delta = start.position() - prev.position()
-        self.bol_ladder.append(start.move(-delta))
-        for b in bols:
-            d = b.distance_after(prev)
-            if d is None:
-                logging.info(f"{b} ancestors:")
-                p = b.piece
-                while p is not None:
-                    p = p.prev
-                    logging.info(p)
-                logging.info(f"{prev} ancestors:")
-                p = prev.piece
-                while p is not None:
-                    p = p.prev
-                    logging.info(p)
-
-            assert d is not None, f"failed! {b} - {prev} => {d}"
-            delta -= d
-            # change could affect line break position up to cols beforehand
-            if delta < self.cols:
-                break
-            self.bol_ladder.append(self.bol_ladder[-1].move(d))
-            prev = b
-
-        logging.info(f'rescue_ladder kept {len(self.bol_ladder)} bol')
