@@ -1,4 +1,5 @@
 *.bin
+*.po
 ptedit.fs
 *~
 *.log
