@@ -1,7 +1,11 @@
 from enum import IntEnum
+from typing import Callable
 from .document import Document, MatchMode, whitespace
 from .location import Location
-from .display import Display
+from .layout import Layout
+
+
+NotifyFn = Callable[[str, bool], None]
 
 
 class ISearchDirection(IntEnum):
@@ -10,11 +14,12 @@ class ISearchDirection(IntEnum):
 
 
 class Editor:
-    def __init__(self, doc: Document, pager: Display):
+    def __init__(self, doc: Document, layout: Layout, notify: NotifyFn):
         self.doc = doc
+        self.layout = layout
+        self.notify = notify
 
         self.doc.watch(self.change_handler)
-        self.pager = pager
 
         # state
         self.mark: Location | None = None
@@ -23,7 +28,11 @@ class Editor:
         self.isearch_dir: ISearchDirection | None = None
         self.isearch_text = ''
         self.isearch_origin = self.doc.get_point()
-        self.isearch_recall = False
+        # isearch_start is true on the first key after C-S/C-R; while true,
+        # any new typed character clears the previous search text.  This is
+        # what lets `C-S C-S` repeat the prior search: the second C-S leaves
+        # isearch_text intact, but typing a new character starts fresh.
+        self.isearch_start = False
 
         # TODO cycle mode action
         self.match_mode = MatchMode.SMART_CASE
@@ -95,7 +104,7 @@ class Editor:
         self.mark = None
 
     def isearch_cancel(self):
-        """Exit, returning to originakl point"""
+        """Exit, returning to the original point"""
         self.isearch_exit()
         self.doc.set_point(self.isearch_origin)
 
@@ -123,7 +132,7 @@ class Editor:
         if direction is not None:
             self.isearch_dir = direction
 
-        self.pager.show_message(f"Search: {self.isearch_text}")
+        self.notify(f"Search: {self.isearch_text}", False)
         self.mark = None
 
         if self.isearch_start:
@@ -141,22 +150,29 @@ class Editor:
             if match:
                 self.mark = self.doc.get_point().move(-len(self.isearch_text))
         else:
-            self.pager.show_message("Empty search", True)
+            self.notify("Empty search", True)
 
     ### Editing commands
 
     def toggle_overwrite(self):
         self.overwrite_mode = not self.overwrite_mode
 
-    def _delete_region(self):
-        """Helper to kill marked region, if any, prior to other edits"""
-        if self.mark:
-            _ = self._clip_region(cut=True)
+    def _kill_region(self):
+        """Delete marked region in place; does NOT touch the clipboard."""
+        if self.mark is None:
+            return
+        a, b = self.mark, self.doc.get_point()
+        if b.is_at_or_before(a):
+            a, b = b, a
+        n = b.position() - a.position()
+        self.doc.set_point(b)
+        self.doc.delete(-n)
+        self.mark = None
 
     def _clip_region(self, cut: bool=False) -> str:
         """Cut or copy marked region, error if no mark"""
         if self.mark is None:
-            self.pager.show_message('No mark', True)
+            self.notify('No mark', True)
             s = ''
         else:
             a, b = (self.mark, self.doc.get_point())
@@ -176,21 +192,21 @@ class Editor:
         if self.isearch_dir is not None:
             self._isearch_insert(c)
         else:
-            self._delete_region()
+            self._kill_region()
             if self.overwrite_mode:
                 self.doc.replace(c)
             else:
                 self.doc.insert(c)
 
     def delete_forward_char(self):
-        self._delete_region()
+        self._kill_region()
         self.doc.delete(1)
 
     def delete_backward_char(self):
         if self.isearch_dir is not None:
             self._isearch_delete()
         else:
-            self._delete_region()
+            self._kill_region()
             self.doc.delete(-1)
 
     def copy(self):
@@ -200,16 +216,16 @@ class Editor:
         self.clipboard = self._clip_region(cut=True)
 
     def paste(self):
-        self._delete_region()
         if not self.clipboard:
-            self.pager.show_message('Clipboard empty', True)
+            self.notify('Clipboard empty', True)
             return
+        self._kill_region()
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool=False) -> str:
-        self.pager.move_start_line()
+        self.layout.move_start_line()
         self.mark = self.doc.get_point()
-        self.pager.move_end_line()
+        self.layout.move_end_line()
         self.move_forward_char()
         return self._clip_region(cut)
 

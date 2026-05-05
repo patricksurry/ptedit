@@ -24,5 +24,6 @@ def test_search_backward():
     assert doc.get_point().position() == 265
     assert doc.find_backward('Alice', document.MatchMode.EXACT_CASE)
     assert doc.get_point().position() == 5
-    assert doc.find_backward('Alice', document.MatchMode.EXACT_CASE)
+    # No earlier match exists: the 'Alice' at [0,4] ends at position 5, not strictly before point=5
+    assert not doc.find_backward('Alice', document.MatchMode.EXACT_CASE)
     assert doc.at_start()

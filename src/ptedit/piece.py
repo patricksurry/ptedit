@@ -25,11 +25,6 @@ class Piece:
     def data(self) -> str:
         ...
 
-    def __bool__(self) -> bool:
-        # Make any non-None instance is truthy
-        # otherwise "if piece ..." checks for len() > 0
-        return True
-
     def __len__(self) -> int:
         return self._len
 
@@ -43,7 +38,7 @@ class Piece:
 
     def trim(self, n: int) -> Self:
         """
-        Trim piece by abs(n) charactesr on the left if n > 0 else on the right"""
+        Trim piece by abs(n) characters on the left if n > 0 else on the right"""
         ...
 
     def lsplit(self, offset: int) -> SecondaryPiece:

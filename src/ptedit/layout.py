@@ -23,21 +23,61 @@ class Ladder(deque[Location]):
         )
 
 
-class Formatter:
-    def __init__(self, doc: Document, cols: int, rungs: int, tab: int=4):
+class Layout:
+    def __init__(self, doc: Document, cols: int, rows: int, rungs: int, tab: int=4):
         self.doc = doc
 
         assert (cols // tab) * tab == cols, "tab should divide cols"
 
         self.cols = cols
+        self.rows = rows
         self.rungs = rungs
         self.tab = tab
 
         self.bol_ladder = Ladder()      # cached beginning of line marks
-        self.wrap_lookahead: bool
+        self.preferred_col = 0          # last column that wasn't
+        self.pin_preferred_col = False  # True if cursor should track preferred col
+
+    # ----- line moves (absorbed from Display) -----
+
+    def move_start_line(self):
+        self.clamp_to_bol()
+
+    def move_end_line(self):
+        self.clamp_to_bol()
+        self.bol_to_next_bol()
+        if not self.doc.at_end():
+            self.doc.move_point(-1)
+
+    def move_forward_line(self):
+        self.clamp_to_bol()
+        if not self.doc.at_end():
+            self.bol_to_next_bol()
+            # defer column setting until we render the line with the point
+            self.pin_preferred_col = True
+
+    def move_backward_line(self):
+        self.clamp_to_bol()
+        if not self.doc.at_start():
+            self.bol_to_prev_bol()
+            self.pin_preferred_col = True
+
+    def move_forward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.rows):
+            self.bol_to_next_bol()
+        self.pin_preferred_col = True
+
+    def move_backward_page(self):
+        self.clamp_to_bol()
+        for _ in range(self.rows):
+            self.bol_to_prev_bol()
+        self.pin_preferred_col = True
 
     def change_handler(self, start: Location, end: Location):
-        self.rescue_ladder(start)
+        # Any document change invalidates the BoL cache; it'll repopulate on the
+        # next paint via ladder_point + bol_to_next_bol. Simpler than rescue.
+        self.bol_ladder = Ladder()
 
     def clamp_to_bol(self):
         """
@@ -87,7 +127,7 @@ class Formatter:
 
         # when there's a _bols cache miss on the way backward, we
         # end up discarding pre-calculated BOLs for the following lines.
-        # we could do extra shenanigans to presereve the old list and tack it on
+        # we could do extra shenanigans to preserve the old list and tack it on
         # the end of the new one created by processing this line but the extra
         # complexity doesn't seem worth it: in normal use we pay the higher backward
         # cost once, and then the forward pass painting the screen primes the cache
@@ -232,58 +272,3 @@ class Formatter:
 
         assert self.bol_ladder.brackets(pt)
 
-    def rescue_ladder(self, start: Location):
-        """
-        After most changes we can rescue most of the cached BoL marks.
-        We need to recreate them based on position relative to the start
-        of the document because the Location objects themselves might
-        no longer be valid as when swapped out of the piece chain.
-        We need to make sure to re-bracket the point, and don't
-        bother if the movement was too large.
-        """
-        # anything to rescue?
-        if not self.bol_ladder:
-            return
-
-        bols = self.bol_ladder
-        self.bol_ladder = Ladder()
-        logging.info(f'rescue_ladder {len(self.bol_ladder)} bol, first/last/edit/pt {bols[0].position()}/{bols[-1].position()}/{start.position()}/{self.doc.get_point().position()}')
-
-        # give up if start is before the first BoL or too far from point
-        if (
-            start.position() < bols[0].position() + self.cols
-            or bols[-1].position() + self.cols * self.rungs < start.position()
-        ):
-            return
-
-        # reconstruct BoL up to the start of the change
-        # use position relative to start
-        # how far is the first BoL from the start of the change?
-        for i,b in enumerate(bols):
-            logging.info(f"ladder {i}: {b} {b.position()}")
-        prev = bols.popleft()
-        delta = start.position() - prev.position()
-        self.bol_ladder.append(start.move(-delta))
-        for b in bols:
-            d = b.distance_after(prev)
-            if d is None:
-                logging.info(f"{b} ancestors:")
-                p = b.piece
-                while p is not None:
-                    p = p.prev
-                    logging.info(p)
-                logging.info(f"{prev} ancestors:")
-                p = prev.piece
-                while p is not None:
-                    p = p.prev
-                    logging.info(p)
-
-            assert d is not None, f"failed! {b} - {prev} => {d}"
-            delta -= d
-            # change could affect line break position up to cols beforehand
-            if delta < self.cols:
-                break
-            self.bol_ladder.append(self.bol_ladder[-1].move(d))
-            prev = b
-
-        logging.info(f'rescue_ladder kept {len(self.bol_ladder)} bol')

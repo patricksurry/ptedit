@@ -88,3 +88,24 @@ def test_replace():
     assert str(doc) == '|a|nother| b|lack|^ fox|'
     assert doc.edit_counts()[0] == 5
 
+
+def test_find_not_char_backward():
+    doc = document.Document('hello   world')   # three spaces between
+    doc.set_point_end()
+    # move past the trailing word
+    assert doc.find_char_backward(' ')
+    # now we're past the spaces; skip them backward to a non-space
+    assert doc.find_not_char_backward(' ')
+    # symmetric with find_char_backward: point lands one past the match,
+    # so back up one to land on the matched non-space ('o' at end of 'hello')
+    doc.move_point(-1)
+    assert doc.get_char() == 'o'
+
+
+def test_find_backward_short_doc_returns_false_when_no_match():
+    doc = document.Document('hi')
+    doc.set_point_end()
+    assert doc.find_backward('xyz', document.MatchMode.EXACT_CASE) is False
+    # point should not have moved past start
+    assert doc.at_end()  # early return: point unmoved when not enough chars
+

@@ -70,8 +70,12 @@ class Controller:
         # use iso-8859-1 so that str <-> bytes is 1:1
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
         self.doc.watch(self.change_handler)
-        self.dpy = Display(self.doc, CursesScreen(stdscr), fname)
-        self.ed = Editor(self.doc, self.dpy)
+        self.dpy = Display(self.doc, CursesScreen(stdscr))
+        self.ed = Editor(
+            self.doc,
+            self.dpy.layout,
+            notify=self.dpy.show_message,
+        )
         self.getch = stdscr.getch
         self.active = True
 
@@ -79,20 +83,21 @@ class Controller:
         printable = {k: k for k in range(32,127)}
         ed = self.ed
         dpy = self.dpy
+        layout = self.dpy.layout
         self.keymap: list[dict[ActionKey, Actionable]] = [
             # KeyMode.NORMAL
             {
                 curses.KEY_LEFT: ed.move_backward_char,
                 curses.KEY_RIGHT: ed.move_forward_char,
-                curses.KEY_UP: dpy.move_backward_line,
-                curses.KEY_DOWN: dpy.move_forward_line,
+                curses.KEY_UP: layout.move_backward_line,
+                curses.KEY_DOWN: layout.move_forward_line,
                 curses.KEY_ENTER: ord('\n'),  # NL
                 curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
                 127: ed.delete_backward_char,
-                ctrl('A'): dpy.move_start_line,
+                ctrl('A'): layout.move_start_line,
                 ctrl('B'): ed.move_backward_word,
                 ctrl('F'): ed.move_forward_word,
-                ctrl('E'): dpy.move_end_line,
+                ctrl('E'): layout.move_end_line,
                 ctrl('D'): ed.delete_forward_char,
                 ctrl('I'): ord('\t'),           # tab
                 ctrl('J'): ord('\n'),           # newline
@@ -125,10 +130,10 @@ class Controller:
                 'after': KeyMode.NORMAL,
 
                 ctrl('['): ed.clear_mark,
-                ord('a'): dpy.move_backward_page,
+                ord('a'): layout.move_backward_page,
                 ord('b'): ed.move_backward_para,
                 ord('f'): ed.move_forward_para,
-                ord('e'): dpy.move_forward_page,
+                ord('e'): layout.move_forward_page,
                 ord('A'): ed.move_start,
                 ord('E'): ed.move_end,
                 ord('m'): ed.set_mark,
@@ -144,9 +149,41 @@ class Controller:
             }
         ]
 
+    def status_message(self, cursor: tuple[int, int]) -> str:
+        if self.dpy.message:
+            status = self.dpy.message
+            self.dpy.message = ''
+        else:
+            pt = self.doc.get_point()
+            doc_data = self.doc.get_data()              # one walk only
+            pt_data = self.doc.get_data(None, pt)
+            doc_nl = doc_data.count('\n')
+            pt_nl = pt_data.count('\n')
+            fname = ('*' if self.doc.dirty else '') + f'{self.fname}'
+            pt_pieces, all_pieces = self.doc.piece_counts()
+            pt_edits, all_edits = self.doc.edit_counts()
+            status = "  ".join([
+                f"{fname}",
+                f"xy {cursor[1]},{cursor[0]}",
+                f"ch ${ord(self.doc.get_char() or chr(0)):02x}",
+                f"pos {pt.position()}/{len(self.doc)}",
+                f"lns {pt_nl}/{doc_nl}",
+                f"pcs {pt_pieces}/{all_pieces}",
+                f"eds {pt_edits}/{all_edits}",
+            ])
+
+        return " " + status
+
     def interactive(self):
         while self.active:
-            self.dpy.paint(self.ed.mark)
+            cursor = self.dpy.paint(self.ed.mark)
+            self.dpy.scr.move(self.dpy.rows, 0)
+            status = self.status_message(cursor)
+            status = (status[:self.dpy.cols] if len(status) >= self.dpy.cols
+                      else status + ' ' * (self.dpy.cols - len(status)))
+            self.dpy.scr.puts(status, highlight=True)
+            self.dpy.scr.move(*cursor)
+            self.dpy.scr.refresh()
             try:
                 key = self.getch()
                 logging.info(f'key ${key:02x}')
@@ -173,21 +210,58 @@ class Controller:
     def change_handler(self, start: Location, end: Location):
         self.autosave()
 
-    def perftest(self, max_time: float=1.0) -> str:
-        self.ed.move_end()
+    def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:
+        runners = {
+            'insert':        self._perf_insert_loop,
+            'up_from_end':   self._perf_up_from_end,
+            'pgup_from_end': self._perf_pgup_from_end,
+            'pgdn_from_top': self._perf_pgdn_from_top,
+        }
+        if scenario not in runners:
+            return f"unknown scenario: {scenario}; choices: {list(runners)}"
+        return runners[scenario](max_time)
+
+    def _run(self, max_time: float, step) -> str:
         frames = 0
         start = time()
-
         while time() - start < max_time:
             self.dpy.paint(self.ed.mark)
             frames += 1
-            logging.info(f'frame {frames}, pos {self.doc.get_point().position()}')
+            step()
+        elapsed = time() - start
+        return f"{frames} frames in {elapsed:0.2f}s = {frames/elapsed:.0f} fps"
+
+    def _perf_insert_loop(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
-            self.dpy.move_backward_line()
+            self.dpy.layout.move_backward_line()
+        return self._run(max_time, step)
 
-        cpf = self.doc.n_get_char_calls / frames
-        return f"Repainted {frames} frames, {cpf:.1f} chars/frame, in {time()-start:0.1}s"
+    def _perf_up_from_end(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
+            if self.doc.at_start():
+                self.ed.move_end()
+            self.dpy.layout.move_backward_line()
+        return self._run(max_time, step)
+
+    def _perf_pgup_from_end(self, max_time: float) -> str:
+        self.ed.move_end()
+        def step():
+            if self.doc.at_start():
+                self.ed.move_end()
+            self.dpy.layout.move_backward_page()
+        return self._run(max_time, step)
+
+    def _perf_pgdn_from_top(self, max_time: float) -> str:
+        self.ed.move_start()
+        def step():
+            if self.doc.at_end():
+                self.ed.move_start()
+            self.dpy.layout.move_forward_page()
+        return self._run(max_time, step)
 
     def dispatch(self, key: int):
         """Handle an ascii keypress"""
