@@ -37,7 +37,6 @@ class Layout:
         self.bol_ladder = Ladder()      # cached beginning of line marks
         self.preferred_col = 0          # last column that wasn't
         self.pin_preferred_col = False  # True if cursor should track preferred col
-        self.wrap_lookahead: bool
 
     # ----- line moves (absorbed from Display) -----
 
@@ -128,7 +127,7 @@ class Layout:
 
         # when there's a _bols cache miss on the way backward, we
         # end up discarding pre-calculated BOLs for the following lines.
-        # we could do extra shenanigans to presereve the old list and tack it on
+        # we could do extra shenanigans to preserve the old list and tack it on
         # the end of the new one created by processing this line but the extra
         # complexity doesn't seem worth it: in normal use we pay the higher backward
         # cost once, and then the forward pass painting the screen primes the cache

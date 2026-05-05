@@ -1,145 +1,146 @@
-`ptedit` implements a miminal ascii text editor 
-using the [piece-table data structure][piecetable].
-The implementation is inspired by [Brown's post on *Piece Chains*][piecechain] and 
-[Finseth's *Craft of Text Editing*][craft].
-It's intended as a proof of concept for a lower-level implementation
-for 6502 hardware in [Forth][tali] or native assembly
+# ptedit
+
+A small ASCII text editor built around the
+[piece-table data structure][piecetable]. The Python prototype here is
+deliberately minimal — it exists to teach the piece-table concept and the
+basics of how an editor is wired together, and to act as the reference
+implementation for an eventual port to 6502 [Forth][tali] and native
+assembly.
+
+Inspired by Brown's [*Piece Chains*][piecechain] and Finseth's
+[*Craft of Text Editing*][craft].
 
 [piecetable]: https://en.wikipedia.org/wiki/Piece_table
 [piecechain]: https://www.catch22.net/tuts/neatpad/piece-chains/
 [craft]: https://www.finseth.com/craft/
 [tali]: https://github.com/SamCoVT/TaliForth2
 
-The piece table is an elegant way of representing an evolving document 
-as a stack of immutable* edits to a source text.
-This provides for efficient storage; offers native undo/redo;
-is simple to reason about;
-and seems particularly well suited for a system with primitive memory management.
+## Quick start
 
-The current state of an edited document comprises a doubly linked `Piece` list.
-Each `Piece` represents a contiguous and immutable* fragment of text from the document.
-Some `Piece`s provide their own data---such as when new text is inserted---and
-others point to data owned by another `Piece`.  An *ur* `Piece` points
-to the original source text, with sentinel `Piece`s marking the start and
-end of the document.
+```sh
+uv sync
+uv run python -m ptedit path/to/file.txt
+```
 
-Each change to the document is represented as an `Edit`, 
-which stores a (completely reversible) change to the linked list.
-Essentially the `Edit` tells how to swap a fragment of the original linked
-list for a new fragment, composed of up to three new `Piece`s (`pre`, `ins` and `post`)
-that it owns.
-We can undo an `Edit` by simply re-swapping the old and new fragments into the 
-document list, restoring the prior state.
-Neither original nor new `Piece`s are modified, 
-other than swapping the fragment in or out of the linked list.
-In particular the underlying data is never changed*.
-Multiple `Edit`s form a simple stack which we can undo by moving down the stack.
-By tracking a stack pointer and high watermark---and not removing undone `Edit`s---we 
-can redo re-applying `Edit`s higher on the stack and advancing the stack pointer.
-If a new `Edit` is created after others have been undone, it simply replaces
-the top of stack and resets the high watermark to automatically invalidate any later `Edit`s.
+Key bindings live in `src/ptedit/controller.py`. They follow loose
+Emacs conventions: arrows move, `C-S`/`C-R` start incremental search,
+`Esc` enters meta mode (`Esc s` saves, `Esc q` quits, `Esc m` sets
+mark, `Esc c`/`x`/`v` are copy/cut/paste, etc.).
 
-(*) Although it's perfectly feasible to make the `Edit` stack completely immutable
-(other than swapping linked-list fragments when applying or undoing an `Edit`)
-in practice we use a small optimization.   We allow the top-most `Edit` on the 
-stack to coalesce with any compatible `Edit` that directly follows.  
-For example, inserting the character "a" followed by "b" and then "c"
-is collapsed to a single `Edit` that inserts "abc" rather than three independent ones. 
-This provides for a much more compact document representation when driven 
-by a typical editor controller supporting single key operations
-like `insert-character`, `replace-character`, `delete-[forward|backward]-character`.
-You can see this in action via the status bar in the prototype: 
-the edit stack typically grows much more slowly than the number of keystrokes
-you enter. 
+## Why a piece table?
 
+A piece table represents an evolving document as an immutable source
+plus a chain of *pieces*, each pointing at a span of either the
+original source or an append-only buffer of inserted text. Edits never
+rewrite text in place; they just rewire the chain. That gives:
 
-Stack:
+- compact storage even after heavy editing,
+- native undo/redo (each edit knows the chain fragment it replaced),
+- simple reasoning — pieces are immutable once linked,
+- a good fit for systems with primitive memory management (no
+  realloc/compaction in the hot path).
 
-(indentation shows ownership)
+## Data model
 
-[ start ]
-[ end ]
-[ source ] -> external source data
-< edit 1 >          ; all three Piece are optional
-    [ pre ] --> shadowed data
-    [ post ] --> shadowed data
-    [ ins ] --v  owned data
-        "abc"
-< edit 2 >
-    [ pre ]
-    [ post ]
-< edit 3 >          ; <= stack pointer (edit 3 is currently undone)
-    [ pre ]
-    [ ins ] --v
-        "de"
-                    ; <= stack highwatermark 
+The document is a doubly-linked list of `Piece`s, bracketed by two
+empty sentinel pieces. Each `Piece` represents a contiguous, immutable
+span of text. A `PrimaryPiece` owns its data; a `SecondaryPiece`
+points into the data of some primary piece. The *ur*-piece loaded
+from disk is a primary piece spanning the whole source file:
 
+```
+[start] <-> [ ur-piece "the quick brown fox" ] <-> [end]
+```
 
-Piece
----
-- [2] prev -> Piece?    ; the linked list
-- [2] next -> Piece?
-- [0/2] data -> pointer to owned or shadowed text 
-    [use source/start model in python since pointers are hard]
-- [1/2] length -> length of the text fragment
-- (optional) inline storage for owned data
-[needs one bit flag for primary vs not, or use data MSB=0 to mean just length]
+Every change is captured as an `Edit` that swaps a fragment of the
+chain for a new one of up to three pieces — `pre`, `ins`, `post`:
 
-Edit
---- 
-- flags[1]: pre? post? ins? 1/2 x 4, applied?
-- [1/2] before -> Piece   ; the pieces where we swap the fragment in and out
-- [1/2] after -> Piece    ; these are immutable
-- unlinked_first, unlinked_last [1/2], [1/2]
-- pre [8], post[8], ins[6+] ; 1-3 inline pieces, with pre/post shadowing data, and ins having inline storage (if present)
+```
+              before                                  after
+                 \                                     /
+   [start] <-> [ pre ] <-> [ ins ] <-> [ post ] <-> [end]
+                  ^           ^           ^
+       shadows left of edit   |     shadows right of edit
+                       owns inserted data
+```
 
+The `Edit` keeps pointers to the unlinked fragment
+(`exclude_first`/`exclude_last`), so undo just re-swaps it back in.
+`Edit`s form their own doubly-linked list; the current document state
+is "everything up to and including the active `Edit`," redo walks
+forward, and a new edit after some undos truncates the forward chain.
 
-Observations:
-- Pieces are often close together on the stack
-- they often occur close to the data they shadow
-- Pieces in an Edit are nearly contiguous
-- data shadowed by a piece is always found below it on the stack 
-  (if we pretend source data is at the bottom of the stack)
-- Pieces that own new data (`ins`) is usually small
+As an optimization the most recent `Edit` may be extended in place
+when the next change is contiguous and compatible (e.g. typing
+`a`, `b`, `c` collapses into a single insert of `"abc"`). You can
+watch this in the status bar — `eds N/M` typically grows much more
+slowly than your keystroke count.
 
-- Piece link: 1-2 bytes, or contiguous(-ish)
-- Primary pieces limit data length to 256 bytes (so small limit on coalesce)
+See `src/ptedit/piece.py` and `src/ptedit/edit.py` for more, including
+an ASCII diagram of an `Edit`'s before/after links.
 
-- variable size piece links in Piece are hard to swap (no space to make short->long)
-- but in Edit they're OK since before/after immutable and links are ok 
-  if old fragment is near (since owned fragment is def near)
+## MVC architecture
 
-Profile:
+```
+       +--------------------------------------------------+
+       |                    Controller                    |
+       |    (curses I/O, keymap, status bar, save/quit)   |
+       +-----------+--------------------+-----------------+
+                   |                    |
+                   v                    v
+              +---------+         +-----------+
+              |  Editor |         |  Display  |
+              | (cmds:  |         |  (paint,  |
+              |  mark,  |         |  find_top)|
+              |  cut,   |         +-----+-----+
+              | search) |               |
+              +----+----+               v
+                   |              +-----------+
+                   +------------> |  Layout   |
+                   |              |(BoL ladder|
+                   |              | line moves|
+                   |              | format)   |
+                   |              +-----+-----+
+                   |                    |
+                   v                    v
+              +-------------------------------+
+              |          Document             |
+              |   (Piece chain + Edit list,   |
+              |    point, find/insert/delete) |
+              +-------------------------------+
+```
 
-    python3 -m cProfile -o ptedit.prof -m src.ptedit -P foo
-    > Terminated after 1e+00s, 132 repaints
+| Layer       | Files                                               | Role                                                                                                                            |
+|-------------|-----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
+| Model       | `piece.py`, `edit.py`, `location.py`, `document.py` | The piece-table itself: pieces, edits, point locations, and a `Document` API for char/region access.                            |
+| Layout      | `layout.py`                                         | Maps the document onto a screen grid: caches beginning-of-line marks, formats one line of glyphs, exposes line/page navigation. |
+| View        | `display.py`, `screen.py`                           | Walks lines from `Layout` and paints them via the abstract `Screen`; tracks `preferred_top` for scrolling.                      |
+| Controller  | `editor.py`, `controller.py`                        | `Editor` owns mark/clipboard/isearch state and exposes named commands; `Controller` binds keys and renders the status bar.      |
 
-    snakeviz ptedit.prof
+The split keeps each concern testable in isolation: the model has no
+idea a screen exists, `Layout` knows columns and rows but not curses,
+`Display` paints into a `Screen` that is mocked in tests, and the
+`Editor` talks to `Display` only through a `notify` callback.
 
+## Repository layout
 
+```
+src/ptedit/      editor source (see table above)
+tests/           pytest suite + sample documents
+docs/plans/      design notes & perf baselines
+docs/            6502 port notes (6502-port-notes.md)
+forth/           in-progress 6502 Forth port (see Makefile)
+```
 
+## Development
 
-source buffer (invariant)
-add buffer (append only)
+```sh
+uv run pytest                          # 54 tests
+uv run python -m ptedit -P file        # default 'insert' perftest scenario
+uv run python -m ptedit -P up_from_end file
+```
 
-piece list / stack - always starts with sentinel first/last which are empty pieces with null next/prev respectively
-
-each piece:
-    prev
-    next
-    bufp
-    #characters
-    #line breaks
-
-goto point / line => scan forward
-goto rel => scan forward/backward from curr piece
-
-insert - append chars to append buffer, replace or modify* piece
-delete - replace or modify* piece
-*modify - only allow if piece top of stack (continuing previous insert/delete)
-
-each insert or delete modifies one existing piece->next and one piece->prev and
-adds one or more pieces to stack (or continues mod on TOS)
-for delete need original length of piece for undelete
-
-undoable edit just needs to remember the modified next/prev, and original size of TOS piece for undelete
+Per-scenario performance baselines live in
+`docs/plans/perf-baseline.md`. Notes intended for the eventual 6502
+port (byte-level `Piece`/`Edit` layout, locality observations, etc.)
+live in [`docs/6502-port-notes.md`](docs/6502-port-notes.md).

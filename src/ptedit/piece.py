@@ -38,7 +38,7 @@ class Piece:
 
     def trim(self, n: int) -> Self:
         """
-        Trim piece by abs(n) charactesr on the left if n > 0 else on the right"""
+        Trim piece by abs(n) characters on the left if n > 0 else on the right"""
         ...
 
     def lsplit(self, offset: int) -> SecondaryPiece:

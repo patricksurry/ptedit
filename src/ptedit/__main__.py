@@ -1,5 +1,3 @@
-# python3 -m src/ptedit [-P] filename
-
 import curses
 from curses import wrapper
 import argparse

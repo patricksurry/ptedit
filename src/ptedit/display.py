@@ -1,4 +1,4 @@
-# The layout engine for showing a document on screen
+# The view layer: paints lines from Layout onto a Screen and tracks scroll state.
 from typing import TYPE_CHECKING
 import logging
 

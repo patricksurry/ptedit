@@ -28,7 +28,10 @@ class Editor:
         self.isearch_dir: ISearchDirection | None = None
         self.isearch_text = ''
         self.isearch_origin = self.doc.get_point()
-        self.isearch_recall = False
+        # isearch_start is true on the first key after C-S/C-R; while true,
+        # any new typed character clears the previous search text.  This is
+        # what lets `C-S C-S` repeat the prior search: the second C-S leaves
+        # isearch_text intact, but typing a new character starts fresh.
         self.isearch_start = False
 
         # TODO cycle mode action
@@ -101,7 +104,7 @@ class Editor:
         self.mark = None
 
     def isearch_cancel(self):
-        """Exit, returning to originakl point"""
+        """Exit, returning to the original point"""
         self.isearch_exit()
         self.doc.set_point(self.isearch_origin)
 
