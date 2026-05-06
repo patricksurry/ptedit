@@ -42,3 +42,69 @@ Only `insert` regresses (each keystroke invalidates the cache, next
 paint rebuilds). 143 fps is still well above human-noticeable for
 typing latency, and the simplification removes ~50 lines of subtle
 position-arithmetic code in `rescue_ladder`. Kept.
+
+## Expanded baseline (May 2026, branch `ladder-preserve-top`)
+
+Two new scenarios added: a `delete` mirror of `insert`, and a `soak`
+that drives the existing `random_soak` action stream (4 MOVE : 2
+INSERT : 2 DELETE : 2 REPLACE) with `paint()` between actions —
+closer to a realistic edit mix than any single-loop scenario.
+
+Captured at the head of `ladder-preserve-top` *before* implementing
+preserve-prefix (full-invalidation still in place). Numbers shifted
+slightly from the table above because piece equality is now
+identity-based (auto dataclass `__eq__` was recursing chains and
+blowing the stack on soak — fixed in this branch).
+
+| scenario       | fps  |
+|----------------|------|
+| insert         | 152  |
+| delete         | 179  |
+| up_from_end    | 492  |
+| pgup_from_end  | 211  |
+| pgdn_from_top  | 342  |
+| soak           | 394  |
+
+## Preserve-prefix experiment (May 2026, branch `ladder-preserve-top`, discarded)
+
+Tried preserving a prefix of the BoL ladder across edits instead of
+the unconditional invalidation.  Two variants:
+
+1. *ladder[0] only, with '\\n'-within-cols safety check*: the check
+   never fired on Alice because most cached BoLs are wrap fragments
+   of long paragraphs, not real line ends.  No measurable speedup.
+
+2. *Walk ladder, keep `bols[i]` iff `bols[i]` and `bols[i+1]` are both
+   in untouched pieces*: cheap O(ladder_length) check per edit, fired
+   often.  Required also relaxing `bol_to_prev_bol`'s "pt is at
+   `ladder[len-2]`" assertion (it assumed the cache was always
+   freshly built around pt).
+
+| scenario       | invalidate | preserve | ratio |
+|----------------|------------|----------|-------|
+| insert         | 152        | 161      | 106%  |
+| delete         | 179        | 184      | 103%  |
+| up_from_end    | 492        | 437      |  89%  |
+| pgup_from_end  | 211        | 206      |  98%  |
+| pgdn_from_top  | 342        | 274      |  80%  |
+| soak           | 394        | 108      |  27%  |
+
+Edit scenarios get a small bump, navigation scenarios regress, and
+the realistic-mix `soak` scenario regresses ~70%.  The relaxed
+`bol_to_prev_bol` lookup (an extra `index()` call per call instead
+of computing the index from `len`) accounts for most of the
+navigation regression; `soak` adds the per-edit walk cost on top.
+
+Decision: revert.  The preserve-prefix idea has surface appeal but
+the savings (one backward scan per ladder rebuild) don't dominate
+the costs once you account for the bookkeeping and the relaxed
+hot-path assumption in `bol_to_prev_bol`.
+
+Two unrelated bugs surfaced and were kept:
+- `Piece.__eq__` was the auto-generated dataclass equality, which
+  recursively compared `prev`/`next` and blew the stack on long
+  chains (only triggered by soak's deep edits).  Fixed by
+  `eq=False`; pieces now compare by object identity.
+- `Display.find_top` left `fallback` unbound when `preferred_row`
+  was unreachable (small `rows`, e.g. tests).  Initialize before
+  the loop.

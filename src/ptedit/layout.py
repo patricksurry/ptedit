@@ -77,6 +77,9 @@ class Layout:
     def change_handler(self, start: Location, end: Location):
         # Any document change invalidates the BoL cache; it'll repopulate on the
         # next paint via ladder_point + bol_to_next_bol. Simpler than rescue.
+        # See docs/plans/perf-baseline.md for the preserve-prefix experiment
+        # that was tried and discarded — soak regressed ~70% for marginal
+        # wins on insert/delete.
         self.bol_ladder = Ladder()
 
     def clamp_to_bol(self):

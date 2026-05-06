@@ -1,5 +1,4 @@
 # The view layer: paints lines from Layout onto a Screen and tracks scroll state.
-from typing import TYPE_CHECKING
 import logging
 
 from .document import Document
@@ -52,10 +51,12 @@ class Display:
         Move the point to the top left of the screen,
         anchoring to preferred_top if possible.
         """
-        if TYPE_CHECKING:
-            # pylance doesn't know rows > preferred_row > 0
-            k = 0
-            fallback = self.doc.get_point()
+        # fallback is what we land on when the preferred_top scan walks off
+        # the start of the doc (k reaches self.rows without breaking).
+        # Default to the current point so a too-small preferred_row doesn't
+        # leave it unbound.
+        fallback = self.doc.get_point()
+        k = 0
 
         self.layout.clamp_to_bol()
         for k in range(1,self.rows+1):

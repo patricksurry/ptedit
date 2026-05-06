@@ -213,9 +213,11 @@ class Controller:
     def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:
         runners = {
             'insert':        self._perf_insert_loop,
+            'delete':        self._perf_delete_loop,
             'up_from_end':   self._perf_up_from_end,
             'pgup_from_end': self._perf_pgup_from_end,
             'pgdn_from_top': self._perf_pgdn_from_top,
+            'soak':          self._perf_soak,
         }
         if scenario not in runners:
             return f"unknown scenario: {scenario}; choices: {list(runners)}"
@@ -236,6 +238,19 @@ class Controller:
         def step():
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
+            self.dpy.layout.move_backward_line()
+        return self._run(max_time, step)
+
+    def _perf_delete_loop(self, max_time: float) -> str:
+        # Symmetric to _perf_insert_loop but exercising the delete path:
+        # repeatedly delete the char before point, then walk back a line.
+        # Stop once we've eaten the doc.
+        self.ed.move_end()
+        def step():
+            if self.doc.at_start():
+                self.ed.undo()                # restore + keep going
+                self.ed.move_end()
+            self.ed.delete_backward_char()
             self.dpy.layout.move_backward_line()
         return self._run(max_time, step)
 
@@ -261,6 +276,28 @@ class Controller:
             if self.doc.at_end():
                 self.ed.move_start()
             self.dpy.layout.move_forward_page()
+        return self._run(max_time, step)
+
+    def _perf_soak(self, max_time: float) -> str:
+        # Drive the random_soak action stream (4 MOVE : 2 INSERT : 2 DELETE :
+        # 2 REPLACE) but call paint between actions so the ladder is
+        # exercised under a realistic edit mix instead of one synthetic loop.
+        from tests.random_soak import random_soak  # type: ignore[import-not-found]
+        actions = random_soak(10_000, seed=42)
+        i = 0
+        def step():
+            nonlocal i
+            typ, k, s = actions[i % len(actions)]
+            i += 1
+            match int(typ):
+                case 0:    # MOVE
+                    self.doc.set_point_start().move_point(k)
+                case 1:    # INSERT
+                    self.doc.insert(s)
+                case 2:    # DELETE
+                    self.doc.delete(k)
+                case 3:    # REPLACE
+                    self.doc.replace(s)
         return self._run(max_time, step)
 
     def dispatch(self, key: int):
