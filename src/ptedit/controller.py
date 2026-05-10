@@ -10,7 +10,7 @@ import logging
 from .document import Document, Location
 from .editor import Editor
 from .display import Display
-from .screen import CursesScreen
+from .screen import Screen
 
 
 logging.basicConfig(level=logging.INFO, filename='ptedit.log', filemode='w')
@@ -57,7 +57,7 @@ def actionlist(actionable: Actionable) -> list[Action]:
 
 
 class Controller:
-    def __init__(self, fname: str, stdscr: curses.window):
+    def __init__(self, fname: str, scr: Screen, getch: Callable[[], int] | None = None):
         self.mode = KeyMode.NORMAL
 
         # create missing file
@@ -70,13 +70,13 @@ class Controller:
         # use iso-8859-1 so that str <-> bytes is 1:1
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
         self.doc.watch(self.change_handler)
-        self.dpy = Display(self.doc, CursesScreen(stdscr))
+        self.dpy = Display(self.doc, scr)
         self.ed = Editor(
             self.doc,
             self.dpy.layout,
             notify=self.dpy.show_message,
         )
-        self.getch = stdscr.getch
+        self.getch = getch
         self.active = True
 
         # printable ascii keys insert themselves
