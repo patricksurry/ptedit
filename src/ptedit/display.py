@@ -29,8 +29,8 @@ class Display:
         self.message = ''
         self.doc.watch(self.change_handler)
 
-    def change_handler(self, start: Location, end: Location):
-        self.layout.change_handler(start, end)
+    def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
+        self.layout.change_handler(start, end, unlinked)
 
     ### External interface begins
 

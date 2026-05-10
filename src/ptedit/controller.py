@@ -207,7 +207,7 @@ class Controller:
         if self.change_count == 0 and self.doc.dirty:
             self.save('~')
 
-    def change_handler(self, start: Location, end: Location):
+    def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
         self.autosave()
 
     def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:

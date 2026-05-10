@@ -84,6 +84,8 @@ class Layout:
         self.preferred_col = 0          # last column that wasn't
         self.pin_preferred_col = False  # True if cursor should track preferred col
 
+        self.bol_ladder = Ladder()
+
     # ----- line moves (absorbed from Display) -----
 
     def move_start_line(self):
@@ -120,9 +122,26 @@ class Layout:
             self.bol_to_prev_bol()
         self.pin_preferred_col = True
 
-    def change_handler(self, start: Location, end: Location):
-        # No cache to invalidate; BoL navigation is now a straight document walk.
-        pass
+    def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
+        """Truncate the ladder at the first invalid entry per docs/rendering.md."""
+        if not self.bol_ladder:
+            return
+        edit_pos = start.position()
+        keep = 0
+        for entry in self.bol_ladder:
+            piece, _offset = entry.tuple()
+            # Validity rule 1: piece id not in unlinked set (ids of removed pieces).
+            if unlinked is not None and id(piece) in unlinked:
+                break
+            # Validity rule 2: entry more than `cols` chars before edit.
+            if entry.position() + self.cols > edit_pos:
+                break
+            keep += 1
+        self.bol_ladder.truncate_to(keep)
+        # If top now points past the surviving range, the ladder is unusable;
+        # Phase 1 in the next paint will re-anchor.
+        if self.bol_ladder and self.bol_ladder.top >= len(self.bol_ladder):
+            self.bol_ladder = Ladder()
 
     def clamp_to_bol(self):
         """

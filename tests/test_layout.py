@@ -114,3 +114,57 @@ def test_offset_for_column():
     assert layout.Layout.offset_for_column(9, col_map) == 7  # A
     assert layout.Layout.offset_for_column(10, col_map) == 8  # eod
     assert layout.Layout.offset_for_column(99, col_map) == 8  # eod
+
+
+def test_change_handler_truncates_at_edit():
+    """Ladder entries near or after the edit are dropped."""
+    doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
+    lay = layout.Layout(doc, 24, 24, 8)
+
+    # Manually populate the ladder by appending BoL marks at known positions.
+    # (Phase 1 will populate this organically in Task 2.3; for this unit test
+    # we seed it directly.)
+    doc.set_point_start()
+    bol1 = doc.get_point()
+    doc.move_point(7)  # past 'line 1\n'
+    bol2 = doc.get_point()
+    doc.move_point(7)  # past 'line 2\n'
+    bol3 = doc.get_point()
+    doc.move_point(7)
+    bol4 = doc.get_point()
+    for b in (bol1, bol2, bol3, bol4):
+        lay.bol_ladder.append(b)
+    assert len(lay.bol_ladder) == 4
+
+    # Simulate an edit at position 14 (start of 'line 3').
+    doc.set_point_start().move_point(14)
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=set())
+
+    # With cols=24 and edit_pos=14, every entry with position + 24 > 14 is
+    # dropped. bol1 is at pos 0: 0 + 24 = 24 > 14, so it's dropped too.
+    # All 4 entries are dropped.
+    assert len(lay.bol_ladder) == 0
+
+
+def test_change_handler_keeps_far_entries():
+    """Ladder entries more than `cols` chars before edit survive."""
+    doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
+    lay = layout.Layout(doc, 4, 24, 8)  # cols=4
+
+    doc.set_point_start()
+    bols = []
+    for _ in range(4):
+        bols.append(doc.get_point())
+        doc.move_point(7)
+
+    for b in bols:
+        lay.bol_ladder.append(b)
+
+    # Edit at position 21 (start of 'line 4'). With cols=4, entries with
+    # position + 4 <= 21 survive. bol1=pos 0 (0+4=4 <= 21 OK),
+    # bol2=pos 7 (7+4=11 <= 21 OK), bol3=pos 14 (14+4=18 <= 21 OK),
+    # bol4=pos 21 (21+4=25 > 21, dropped).
+    doc.set_point_start().move_point(21)
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=set())
+
+    assert len(lay.bol_ladder) == 3

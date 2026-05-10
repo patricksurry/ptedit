@@ -37,7 +37,7 @@ class Editor:
         # TODO cycle mode action
         self.match_mode = MatchMode.SMART_CASE
 
-    def change_handler(self, start: Location, end: Location):
+    def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
         self.mark = None
 
     def squash(self):

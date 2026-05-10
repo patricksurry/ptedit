@@ -43,7 +43,7 @@ def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatena
     return wrapped
 
 
-Watcher = Callable[[Location,Location],None]
+Watcher = Callable[[Location, Location, 'frozenset[int] | None'], None]
 
 
 class Document:
@@ -68,8 +68,19 @@ class Document:
     def notify_watchers(self):
         self.dirty = True
         start, end = (self._edit.get_change_start(), self._edit.get_change_end())
+        # Collect the object ids of pieces unlinked by this edit (for ladder invalidation).
+        # We use id() because Piece dataclasses are mutable and therefore not hashable.
+        unlinked_ids: set[int] = set()
+        if not self._edit.exclude_empty:
+            p = self._edit.exclude_first
+            while p is not None:
+                unlinked_ids.add(id(p))
+                if p is self._edit.exclude_last:
+                    break
+                p = p.next
+        unlinked = frozenset(unlinked_ids)
         for watcher in self._watchers:
-            watcher(start, end)
+            watcher(start, end, unlinked)
 
     @mutator
     def squash(self):
