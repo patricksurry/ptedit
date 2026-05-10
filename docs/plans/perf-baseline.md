@@ -56,3 +56,19 @@ against `tests/alice1flow.asc`, prior to Stage 1 of the ladder redesign.
 | up_from_end    | 525  |
 | pgup_from_end  | 218  |
 | pgdn_from_top  | 346  |
+
+## Stage 1 — naive baseline (rendering redesign)
+
+No ladder; every frame backscans from the cursor and reformats. Captured
+at commit `4dfae5d` against `tests/alice1flow.asc` under the mock-Screen
+perftest path.
+
+| scenario       | pre-rewrite fps | naive fps | ratio |
+|----------------|-----------------|-----------|-------|
+| insert         | 150             | 101       | 67%   |
+| up_from_end    | 525             | 122       | 23%   |
+| pgup_from_end  | 218             | 57        | 26%   |
+| pgdn_from_top  | 346             | 122       | 35%   |
+
+Severe regression expected — this is the floor against which Stage 2 is
+measured.
