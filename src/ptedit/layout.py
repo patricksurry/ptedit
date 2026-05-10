@@ -139,6 +139,78 @@ class Layout:
             keep += 1
         self.bol_ladder.truncate_to(keep)
 
+    def _reanchor(self, cursor: Location):
+        """Rebuild the ladder fresh: backscan from cursor to nearest newline
+        (or doc start), seed the ladder with that anchor, and forward-format
+        until cursor is bracketed.
+
+        find_char_backward('\n') leaves the point *after* the newline (i.e. at
+        the hard BoL) if a newline is found, or at doc start otherwise.  No
+        move_point(-1) prelude is needed: calling from a position that is
+        already a hard BoL will land back at the same BoL, which is correct.
+        """
+        save_pt = self.doc.get_point()
+        self.doc.set_point(cursor)
+        if not self.doc.at_start():
+            self.doc.find_char_backward('\n')
+        anchor = self.doc.get_point()
+        self.bol_ladder.reset(anchor)
+        # Forward-format until the cursor lies within the cached range.
+        while self.doc.get_point().is_strictly_before(cursor):
+            self.format_line()
+            self.bol_ladder.append(self.doc.get_point())
+        # Top is the screen-anchor; for re-anchor, set it = first.
+        self.bol_ladder.top = self.bol_ladder.first
+        self.doc.set_point(save_pt)
+
+    def _locate_cursor(self, cursor: Location) -> str:
+        """Phase 1 step 2 from docs/rendering.md.
+        Returns one of: 'bracketed', 'extend', 'reanchor'.
+        """
+        lad = self.bol_ladder
+        if not lad:
+            return 'reanchor'
+        if cursor.is_strictly_before(lad[0]):
+            return 'reanchor'
+        if cursor.is_strictly_before(lad[-1]):
+            return 'bracketed'
+        # cursor is at or past the last entry
+        gap = cursor.distance_after(lad[-1])
+        if gap is None or gap > self.rows * self.cols:
+            return 'reanchor'
+        return 'extend'
+
+    def _extend_to(self, cursor: Location):
+        """Format forward from the last cached BoL until cursor is bracketed."""
+        save_pt = self.doc.get_point()
+        self.doc.set_point(self.bol_ladder[-1])
+        added = 0
+        while self.doc.get_point().is_strictly_before(cursor) and added <= self.rows:
+            self.format_line()
+            self.bol_ladder.append(self.doc.get_point())
+            added += 1
+        self.doc.set_point(save_pt)
+
+    def _ensure_bracketed(self, cursor: Location | None = None):
+        """Phase 1: ensure the ladder brackets `cursor` (defaults to point)."""
+        if cursor is None:
+            cursor = self.doc.get_point()
+        match self._locate_cursor(cursor):
+            case 'bracketed':
+                return
+            case 'extend':
+                self._extend_to(cursor)
+            case 'reanchor':
+                self._reanchor(cursor)
+
+    def _find_line_index(self, cursor: Location) -> int:
+        """Index of the ladder entry whose line contains `cursor`."""
+        lad = self.bol_ladder
+        for i in range(len(lad) - 1):
+            if cursor.is_strictly_before(lad[i + 1]):
+                return i
+        return len(lad) - 1
+
     def clamp_to_bol(self):
         """
         Move the point back to prior bol.
@@ -146,29 +218,22 @@ class Layout:
         """
         if self.doc.at_start():
             return
-
-        pt = self.doc.get_point()
-
-        # Backscan to the hard BoL (character after the preceding \n, or doc start)
-        self.doc.find_char_backward('\n')
-        # find_char_backward leaves us *after* the \n if found, or at doc start
-
-        # Forward-walk visual lines until we reach or pass pt
-        while self.doc.get_point().is_strictly_before(pt):
-            prev_bol = self.doc.get_point()
-            self.format_line()
-            if pt.is_strictly_before(self.doc.get_point()):
-                # Next BoL strictly passed pt; the last BoL before pt is prev_bol
-                self.doc.set_point(prev_bol)
-                return
-
-        # The point is either exactly at pt (pt is a BoL) or we started at/after pt
-        # (pt was already at hard_bol); leave the point where the walk landed.
-        pass
+        cursor = self.doc.get_point()
+        self._ensure_bracketed(cursor)
+        i = self._find_line_index(cursor)
+        self.doc.set_point(self.bol_ladder[i])
 
     def bol_to_next_bol(self):
-        # format and discard line to advance point
+        bol = self.doc.get_point()
+        self._ensure_bracketed(bol)
+        i = self._find_line_index(bol)
+        if i + 1 < len(self.bol_ladder):
+            self.doc.set_point(self.bol_ladder[i + 1])
+            return
+        # bol is the newest entry; format one more line to advance.
         self.format_line()
+        if not self.doc.at_end():
+            self.bol_ladder.append(self.doc.get_point())
 
     def bol_to_prev_bol(self):
         """
@@ -177,25 +242,18 @@ class Layout:
         """
         if self.doc.at_start():
             return
-
-        pt = self.doc.get_point()
-
-        # Step back one character to get before the current BoL, then backscan
+        bol = self.doc.get_point()
+        self._ensure_bracketed(bol)
+        i = self._find_line_index(bol)
+        if i > 0:
+            self.doc.set_point(self.bol_ladder[i - 1])
+            return
+        # bol is the oldest entry — re-anchor before it.
         self.doc.move_point(-1)
-        self.doc.find_char_backward('\n')
-        # find_char_backward leaves us *after* the \n if found, or at doc start
-        hard_bol = self.doc.get_point()
-
-        # Forward-walk visual lines to find the BoL immediately before pt.
-        # We track prev_bol so that when format_line() reaches or passes pt,
-        # prev_bol holds the last BoL that was strictly before pt.
-        prev_bol = hard_bol
-        while self.doc.get_point().is_strictly_before(pt):
-            prev_bol = self.doc.get_point()
-            self.format_line()
-
-        # Loop exits when next BoL is at-or-after pt; prev_bol is the previous BoL
-        self.doc.set_point(prev_bol)
+        self._reanchor(self.doc.get_point())
+        # Now bol must be the newest of a fresh ladder; new prev is at -2.
+        if len(self.bol_ladder) >= 2:
+            self.doc.set_point(self.bol_ladder[-2])
 
     ### Internal glyph rendering for BoL calcs and painting
 
