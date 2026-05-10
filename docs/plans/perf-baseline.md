@@ -45,12 +45,14 @@ position-arithmetic code in `rescue_ladder`. Kept.
 
 ## Pre-rewrite reference (rendering-redesign branch)
 
-Captured at HEAD of `rendering-redesign` (commit `e1e07b2`)
+Captured at HEAD of `rendering-redesign` (commit `642472f`)
 against `tests/alice1flow.asc`, prior to Stage 1 of the ladder redesign.
+
+*Re-captured under mock `Screen` path (no curses I/O); previous `script`-style numbers replaced.*
 
 | scenario       | fps  |
 |----------------|------|
-| insert         | 146  |
-| up_from_end    | 490  |
-| pgup_from_end  | 209  |
-| pgdn_from_top  | 329  |
+| insert         | 150  |
+| up_from_end    | 525  |
+| pgup_from_end  | 218  |
+| pgdn_from_top  | 346  |
