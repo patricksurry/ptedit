@@ -168,3 +168,29 @@ def test_change_handler_keeps_far_entries():
     lay.change_handler(doc.get_point(), doc.get_point(), unlinked=set())
 
     assert len(lay.bol_ladder) == 3
+
+
+def test_change_handler_drops_entry_at_cols_boundary():
+    """An entry exactly `cols` chars before the edit must be truncated."""
+    doc = document.Document('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')  # 32 a's
+    lay = layout.Layout(doc, 4, 24, 8)  # cols=4
+
+    # Build ladder entries at positions 0, 4, 8, 12.
+    bols = []
+    doc.set_point_start()
+    for i in range(4):
+        doc.set_point_start().move_point(i * 4)
+        bols.append(doc.get_point())
+    for b in bols:
+        lay.bol_ladder.append(b)
+
+    # Edit at position 8: entries at positions 0, 4 must survive
+    # (4 + cols=4 = 8 == edit_pos, so it's exactly at boundary -> drop;
+    # 0 + 4 = 4 < 8, so pos 0 survives). Entry at pos 4 is the boundary case.
+    doc.set_point_start().move_point(8)
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
+
+    # Per spec ("more than cols chars before"): only pos 0 should survive.
+    # Pos 4 is exactly cols before edit, must be dropped.
+    assert len(lay.bol_ladder) == 1
+    assert lay.bol_ladder[0].position() == 0

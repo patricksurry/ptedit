@@ -134,7 +134,7 @@ class Layout:
             if unlinked is not None and id(piece) in unlinked:
                 break
             # Validity rule 2: entry more than `cols` chars before edit.
-            if entry.position() + self.cols > edit_pos:
+            if entry.position() + self.cols >= edit_pos:
                 break
             keep += 1
         self.bol_ladder.truncate_to(keep)
