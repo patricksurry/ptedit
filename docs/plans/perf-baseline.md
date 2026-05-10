@@ -42,3 +42,15 @@ Only `insert` regresses (each keystroke invalidates the cache, next
 paint rebuilds). 143 fps is still well above human-noticeable for
 typing latency, and the simplification removes ~50 lines of subtle
 position-arithmetic code in `rescue_ladder`. Kept.
+
+## Pre-rewrite reference (rendering-redesign branch)
+
+Captured at HEAD of `rendering-redesign` (commit `e1e07b2`)
+against `tests/alice1flow.asc`, prior to Stage 1 of the ladder redesign.
+
+| scenario       | fps  |
+|----------------|------|
+| insert         | 146  |
+| up_from_end    | 490  |
+| pgup_from_end  | 209  |
+| pgdn_from_top  | 329  |
