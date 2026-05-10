@@ -1,4 +1,3 @@
-from collections import deque
 import logging
 
 from .location import Location
@@ -6,21 +5,6 @@ from .document import Document
 
 
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
-
-
-class Ladder(deque[Location]):
-    def __init__(self, locs: list[Location]=[]):
-        super().__init__(locs, maxlen=48)
-
-    def brackets(self, pt: Location):
-        p, off = pt.tuple()
-        assert len(self) > 0 and p.prev is not None
-        start, end = self[0], self[-1]
-
-        return (
-            (start.is_strictly_before(pt) or (off == 0 and p.prev.prev is None and start == pt))
-            and (pt.is_strictly_before(end) or (off == 0 and p.next is None and end == pt))
-        )
 
 
 class Layout:
@@ -34,7 +18,6 @@ class Layout:
         self.rungs = rungs
         self.tab = tab
 
-        self.bol_ladder = Ladder()      # cached beginning of line marks
         self.preferred_col = 0          # last column that wasn't
         self.pin_preferred_col = False  # True if cursor should track preferred col
 
@@ -75,47 +58,40 @@ class Layout:
         self.pin_preferred_col = True
 
     def change_handler(self, start: Location, end: Location):
-        # Any document change invalidates the BoL cache; it'll repopulate on the
-        # next paint via ladder_point + bol_to_next_bol. Simpler than rescue.
-        self.bol_ladder = Ladder()
+        # No cache to invalidate; BoL navigation is now a straight document walk.
+        pass
 
     def clamp_to_bol(self):
         """
         Move the point back to prior bol.
         Unlike bol_to_prev_bol this is a no-op if we're already at BOL
         """
-        pt = self.doc.get_point()
-        if self.doc.at_start() or self.doc.at_end() or pt in self.bol_ladder:
+        if self.doc.at_start():
             return
 
-        if not self.bol_ladder or not pt.within(self.bol_ladder[0],self.bol_ladder[-1]):
-            self.ladder_point()
+        pt = self.doc.get_point()
 
-        # point is strictly bracketed, just find correct rung
-        top = self.bol_ladder[0]
-        assert pt.is_at_or_after(top)
-        for bol in reversed(self.bol_ladder):  #TODO could skip first
-            dbol, dpt = bol.distance_after(top), pt.distance_after(top)
-            assert dbol is not None and dpt is not None
-            if dbol <= dpt:
-                self.doc.set_point(bol)
+        # Backscan to the hard BoL (character after the preceding \n, or doc start)
+        self.doc.find_char_backward('\n')
+        # find_char_backward leaves us *after* the \n if found, or at doc start
+        hard_bol = self.doc.get_point()
+
+        # Forward-walk visual lines until we reach or pass pt
+        while self.doc.get_point().is_strictly_before(pt):
+            prev_bol = self.doc.get_point()
+            self.format_line()
+            if pt.is_strictly_before(self.doc.get_point()):
+                # Next BoL strictly passed pt; the last BoL before pt is prev_bol
+                self.doc.set_point(prev_bol)
                 return
 
-        assert False, "clamp_to_bol failed"
+        # The point is either exactly at pt (pt is a BoL) or we started at/after pt
+        # (pt was already at hard_bol); leave the point where the walk landed.
+        pass
 
     def bol_to_next_bol(self):
-        bol = self.doc.get_point()
-
-        n = len(self.bol_ladder)
-        try:
-            i = self.bol_ladder.index(bol)
-        except:
-            i = n     # force miss
-        if i+1 < n:
-            self.doc.set_point(self.bol_ladder[i+1])
-        else:
-            # format and discard line to advance point
-            self.format_line()
+        # format and discard line to advance point
+        self.format_line()
 
     def bol_to_prev_bol(self):
         """
@@ -125,28 +101,28 @@ class Layout:
         if self.doc.at_start():
             return
 
-        # when there's a _bols cache miss on the way backward, we
-        # end up discarding pre-calculated BOLs for the following lines.
-        # we could do extra shenanigans to preserve the old list and tack it on
-        # the end of the new one created by processing this line but the extra
-        # complexity doesn't seem worth it: in normal use we pay the higher backward
-        # cost once, and then the forward pass painting the screen primes the cache
-        # and speeds up many subsequent frames unless the user is doing a lot of
-        # long-range navigation.  Without a cache we process more than 6x
-        # the characters on the screen while rendering it; once the cache is primed
-        # that reduces to about 10-15% overhead
+        pt = self.doc.get_point()
 
-        try:
-            i = self.bol_ladder.index(self.doc.get_point())
-        except ValueError:
-            i = 0  # force miss
+        # Step back one character to get before the current BoL, then backscan
+        self.doc.move_point(-1)
+        self.doc.find_char_backward('\n')
+        # find_char_backward leaves us *after* the \n if found, or at doc start
+        hard_bol = self.doc.get_point()
 
-        if not i:
-            self.ladder_point()
-            i = len(self.bol_ladder) - (1 if self.doc.at_end() else 2)
-            assert self.doc.get_point() == self.bol_ladder[i]
+        # Forward-walk visual lines to find the BoL immediately before pt.
+        # We track prev_bol so that when format_line() reaches or passes pt,
+        # prev_bol holds the last BoL that was strictly before pt.
+        prev_bol = hard_bol
+        while self.doc.get_point().is_strictly_before(pt):
+            prev_bol = self.doc.get_point()
+            self.format_line()
+            if not self.doc.get_point().is_strictly_before(pt):
+                # Next BoL has met or passed pt; the answer is prev_bol
+                self.doc.set_point(prev_bol)
+                return
 
-        self.doc.set_point(self.bol_ladder[i-1])
+        # pt == hard_bol: already at the first visual BoL in this paragraph
+        self.doc.set_point(hard_bol)
 
     ### Internal glyph rendering for BoL calcs and painting
 
@@ -172,12 +148,6 @@ class Layout:
         This representation makes it easy to compute the screen column
         given a document offset from BoL.
         """
-
-        pt = self.doc.get_point()
-        if pt not in self.bol_ladder:
-            self.bol_ladder = Ladder([pt])
-            logging.info(f'format_line reset to [{pt.position()}]')
-        extend_ladder = pt == self.bol_ladder[-1]
 
         wrap_col = 0
         wrap_point: Location | None = None
@@ -222,10 +192,6 @@ class Layout:
             col_map = [c for c in col_map if c < wrap_col]
             self.doc.set_point(wrap_point)
 
-        pt = self.doc.get_point()
-        if extend_ladder and pt != self.bol_ladder[-1]:
-            self.bol_ladder.append(pt)
-
         line += bytes(self.cols - len(line))
 
         return line, col_map
@@ -238,37 +204,3 @@ class Layout:
         while offset and col_map[offset] > column:
             offset -= 1
         return offset
-
-    ### Internal beginning-of-line routines
-
-    def ladder_point(self):
-        """
-        Ensure that the point is strictly bracketed by BoL marks (or at start/end),
-        with approximately 'rungs' marks before the point.
-        """
-        pt = self.doc.get_point()
-        if self.bol_ladder:
-            # do we already bracket the point?
-            if self.bol_ladder.brackets(pt):
-                return
-
-            # is the existing ladder still useful?
-            #TODO is this right
-            if pt.is_at_or_before(self.bol_ladder[0]) or (pt.distance_after(self.bol_ladder[-1]) or 1e6) > self.rungs * self.cols:
-                self.bol_ladder = Ladder()
-
-        # find a reasonable starting point for the ladder
-        if not self.bol_ladder:
-            self.doc.move_point(-self.rungs * self.cols)
-            self.doc.find_char_backward('\n')
-            self.bol_ladder = Ladder([self.doc.get_point()])
-
-        # extend the ladder until we bracket the point
-        self.doc.set_point(self.bol_ladder[-1])
-        while not self.doc.at_end() and self.doc.get_point().is_at_or_before(pt):
-            self.bol_to_next_bol()
-
-        self.doc.set_point(pt)
-
-        assert self.bol_ladder.brackets(pt)
-
