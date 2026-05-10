@@ -7,6 +7,69 @@ from .document import Document
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
 
 
+class Ladder:
+    """
+    Sequence of BoL Locations covering the visible region and its
+    immediate neighborhood, per docs/rendering.md.
+
+    The doc describes a 64-slot ring buffer with three indices
+    (first/top/last) — that's the contract for the 6502/Forth port,
+    where the byte budget matters. This Python reference uses a plain
+    list for clarity:
+
+        first == 0           (always; we trim from the front)
+        last  == len(slots)  (always)
+        top                  is a simple integer index in [first, last)
+
+    The algorithm in the doc is unchanged; only the data structure
+    differs. A Forth port should re-derive the wrap-aware index math
+    from the spec.
+    """
+    MAX = 64
+
+    def __init__(self):
+        self.slots: list[Location] = []
+        self.top: int = 0
+
+    @property
+    def first(self) -> int:
+        return 0
+
+    @property
+    def last(self) -> int:
+        return len(self.slots)
+
+    def __bool__(self) -> bool:
+        return bool(self.slots)
+
+    def __len__(self) -> int:
+        return len(self.slots)
+
+    def __iter__(self):
+        return iter(self.slots)
+
+    def __getitem__(self, i: int) -> Location:
+        return self.slots[i]
+
+    def append(self, loc: Location):
+        self.slots.append(loc)
+        if len(self.slots) > self.MAX:
+            self.slots.pop(0)
+            self.top = max(0, self.top - 1)
+
+    def truncate_to(self, count: int):
+        """Keep the first `count` entries; discard the rest."""
+        assert 0 <= count <= len(self.slots)
+        del self.slots[count:]
+        if self.top >= count:
+            self.top = max(0, count - 1)
+
+    def reset(self, anchor: Location):
+        """Discard everything; seed with a single anchor at top."""
+        self.slots = [anchor]
+        self.top = 0
+
+
 class Layout:
     def __init__(self, doc: Document, cols: int, rows: int, rungs: int, tab: int=4):
         self.doc = doc

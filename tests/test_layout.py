@@ -1,4 +1,67 @@
 from ptedit import document, layout
+from ptedit.layout import Ladder
+from ptedit.location import Location
+
+
+def _locs(n: int) -> list[Location]:
+    """Distinct, ordered Locations for ladder-mechanics tests."""
+    from ptedit.document import Document
+    d = Document('x' * (n * 2))
+    out = []
+    for i in range(n):
+        d.set_point_start().move_point(i * 2)
+        out.append(d.get_point())
+    return out
+
+
+def test_ladder_empty():
+    lad = Ladder()
+    assert not lad
+    assert len(lad) == 0
+    assert lad.top == 0
+    assert lad.first == 0
+    assert lad.last == 0
+
+
+def test_ladder_append_and_iter():
+    lad = Ladder()
+    locs = _locs(5)
+    for loc in locs:
+        lad.append(loc)
+    assert bool(lad)
+    assert len(lad) == 5
+    assert list(lad) == locs
+    assert lad[0] == locs[0]
+    assert lad[-1] == locs[-1]
+
+
+def test_ladder_truncate():
+    lad = Ladder()
+    locs = _locs(5)
+    for loc in locs:
+        lad.append(loc)
+    lad.truncate_to(2)
+    assert list(lad) == locs[:2]
+
+
+def test_ladder_reset():
+    lad = Ladder()
+    for loc in _locs(3):
+        lad.append(loc)
+    new_anchor = _locs(1)[0]
+    lad.reset(new_anchor)
+    assert list(lad) == [new_anchor]
+    assert lad.top == 0
+
+
+def test_ladder_drops_oldest_past_max():
+    """Past MAX entries, oldest is discarded; top index follows."""
+    lad = Ladder()
+    locs = _locs(Ladder.MAX + 3)
+    for loc in locs:
+        lad.append(loc)
+    assert len(lad) == Ladder.MAX
+    assert list(lad) == locs[3:]
 
 
 def test_bol():
