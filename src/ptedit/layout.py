@@ -74,7 +74,6 @@ class Layout:
         # Backscan to the hard BoL (character after the preceding \n, or doc start)
         self.doc.find_char_backward('\n')
         # find_char_backward leaves us *after* the \n if found, or at doc start
-        hard_bol = self.doc.get_point()
 
         # Forward-walk visual lines until we reach or pass pt
         while self.doc.get_point().is_strictly_before(pt):
@@ -116,13 +115,9 @@ class Layout:
         while self.doc.get_point().is_strictly_before(pt):
             prev_bol = self.doc.get_point()
             self.format_line()
-            if not self.doc.get_point().is_strictly_before(pt):
-                # Next BoL has met or passed pt; the answer is prev_bol
-                self.doc.set_point(prev_bol)
-                return
 
-        # pt == hard_bol: already at the first visual BoL in this paragraph
-        self.doc.set_point(hard_bol)
+        # Loop exits when next BoL is at-or-after pt; prev_bol is the previous BoL
+        self.doc.set_point(prev_bol)
 
     ### Internal glyph rendering for BoL calcs and painting
 
