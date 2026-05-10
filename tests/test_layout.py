@@ -138,7 +138,7 @@ def test_change_handler_truncates_at_edit():
 
     # Simulate an edit at position 14 (start of 'line 3').
     doc.set_point_start().move_point(14)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=set())
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
 
     # With cols=24 and edit_pos=14, every entry with position + 24 > 14 is
     # dropped. bol1 is at pos 0: 0 + 24 = 24 > 14, so it's dropped too.
@@ -165,7 +165,7 @@ def test_change_handler_keeps_far_entries():
     # bol2=pos 7 (7+4=11 <= 21 OK), bol3=pos 14 (14+4=18 <= 21 OK),
     # bol4=pos 21 (21+4=25 > 21, dropped).
     doc.set_point_start().move_point(21)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=set())
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
 
     assert len(lay.bol_ladder) == 3
 

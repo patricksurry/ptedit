@@ -138,10 +138,6 @@ class Layout:
                 break
             keep += 1
         self.bol_ladder.truncate_to(keep)
-        # If top now points past the surviving range, the ladder is unusable;
-        # Phase 1 in the next paint will re-anchor.
-        if self.bol_ladder and self.bol_ladder.top >= len(self.bol_ladder):
-            self.bol_ladder = Ladder()
 
     def clamp_to_bol(self):
         """
