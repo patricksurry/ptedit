@@ -11,8 +11,7 @@ def test_frame():
     alice.set_point_start().move_point(595)
     pt = alice.get_point()
     dpy = display.Display(alice, display.Screen(24, 72))
-    dpy.preferred_top = None
-    dpy.find_top()
+    dpy.find_top()           # preferred_top no longer exists
     top = alice.get_point()
     s = alice.get_data(top, pt)
     assert s.startswith('the book her sister was reading')

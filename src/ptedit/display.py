@@ -1,5 +1,4 @@
 # The view layer: paints lines from Layout onto a Screen and tracks scroll state.
-from typing import TYPE_CHECKING
 import logging
 
 from .document import Document
@@ -27,8 +26,6 @@ class Display:
         # layout options
         self.guard_rows = guard_rows
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
-        self.preferred_top: Location | None = None
-
         self.message = ''
         self.doc.watch(self.change_handler)
 
@@ -38,8 +35,8 @@ class Display:
     ### External interface begins
 
     def recenter(self):
-        """Force point back to preferred row by invalidating sticky top"""
-        self.preferred_top = None
+        """Redraw screen; recentering is now implicit on every paint"""
+        self.paint()
 
     def show_message(self, msg: str, warn: bool=False):
         self.message = msg
@@ -48,38 +45,13 @@ class Display:
             logging.warning(msg)
 
     def find_top(self):
-        """
-        Move the point to the top left of the screen,
-        anchoring to preferred_top if possible.
-        """
-        if TYPE_CHECKING:
-            # pylance doesn't know rows > preferred_row > 0
-            k = 0
-            fallback = self.doc.get_point()
-
+        """Move the point to the top-left of the screen by walking
+        preferred_row visual lines back from the current point."""
         self.layout.clamp_to_bol()
-        for k in range(1,self.rows+1):
+        for _ in range(self.preferred_row):
+            if self.doc.at_start():
+                return
             self.layout.bol_to_prev_bol()
-            if k == self.preferred_row:
-                fallback = self.doc.get_point()
-            if self.doc.get_point() == self.preferred_top:
-                break
-
-        # found top?
-        if k < self.rows:
-            # too close to point?
-            while k < self.guard_rows:
-                self.layout.bol_to_prev_bol()
-                k += 1
-
-            # found top too far from point?
-            while k >= self.rows - self.guard_rows:
-                self.layout.bol_to_next_bol()
-                k -= 1
-        else:
-            self.doc.set_point(fallback)
-
-        self.preferred_top = self.doc.get_point()
 
     def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
