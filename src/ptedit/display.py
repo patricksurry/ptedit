@@ -36,7 +36,8 @@ class Display:
     ### External interface begins
 
     def recenter(self):
-        """Redraw screen; recentering is now implicit on every paint"""
+        """Force the cursor back toward the middle of the screen on next paint."""
+        self.top_pos = None
         self.paint()
 
     def show_message(self, msg: str, warn: bool=False):

@@ -87,3 +87,21 @@ def test_raw():
     doc = document.Document(open('tests/raw.dat', encoding='iso-8859-1').read())
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
+
+
+def test_recenter():
+    doc = document.Document(ALICE_FLOW)
+    dpy = display.Display(doc, display.Screen(24, 80))
+    # paint somewhere mid-doc, then scroll the cursor within the window
+    doc.set_point_start().move_point(4000)
+    dpy.paint()
+    centered_top = dpy.top_pos
+    # move the cursor down a few lines (stays within the window, sticky top holds)
+    for _ in range(3):
+        dpy.layout.move_forward_line()
+        dpy.paint()
+    # top should still be the sticky one (cursor hasn't left the window)
+    assert dpy.top_pos == centered_top
+    # now Ctrl-L: should force a recenter so the cursor is back near preferred_row
+    dpy.recenter()
+    assert dpy.top_pos != centered_top  # top moved to re-center on the new cursor
