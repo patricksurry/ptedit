@@ -28,6 +28,11 @@ class Display:
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
         self.message = ''
         self.top_pos: int | None = None     # document position at screen row 0 last frame
+
+        # Phase 2 redraw-strategy state
+        self.prev_cursor: tuple[int, int] | None = None  # cursor cell from last frame
+        self.row_positions: list[int] = [0] * self.rows  # doc position at start of each row
+
         self.doc.watch(self.change_handler)
 
     def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
@@ -102,48 +107,67 @@ class Display:
         self.top_pos = chosen_pos
         self.doc.set_point(lad[top_idx])
 
-    def paint(self, mark: Location|None=None) -> tuple[int, int]:
+    def _render_rows(
+            self,
+            start_row: int,
+            end_row: int,
+            mark: Location | None,
+            at_end: bool,
+            top_idx: int,
+            original_pt: Location,
+    ) -> tuple[tuple[int, int] | None, Location]:
+        """Render ladder rows [start_row, end_row) to the screen.
+
+        Assumes the ladder covers these rows (find_top's _extend_lines did that).
+        Returns (cursor_cell, adjusted_pt) where cursor_cell is (row, col) if the
+        cursor falls in [start_row, end_row), else None. adjusted_pt is original_pt
+        possibly adjusted by the deferred pin_preferred_col column fixup.
+
+        Populates self.row_positions[start_row:end_row].
+        Mutates self.layout.pin_preferred_col / preferred_col like the old paint did.
         """
-        Paint the buffer content to the screen, returning the cursor position.
-        Leaves point unchanged. The caller is responsible for the status line,
-        restoring the cursor, and refreshing the screen.
-        """
-        original_pt = self.doc.get_point()
-        at_end = self.doc.at_end()
+        lad = self.layout.bol_ladder
 
-        self.find_top()         # move point to show at top-left of screen
+        if start_row > 0:
+            # Partial render: position the cursor on screen at the right row.
+            # (Dead code for this task — callers always pass start_row=0 — but
+            # written correctly for 2.6b partial renders.)
+            self.scr.move(start_row, 0)
 
-        self.scr.clear()        # move cursor to 0,0
+        # Set the point at the first row we render, then format_line advances it.
+        first_loc = lad[top_idx + start_row]
+        self.doc.set_point(first_loc)
+        start_pos = first_loc.position()
 
-        cursor = (0,0)
-
-        start_pt = self.doc.get_point()
-        start_pos = start_pt.position()
         pt_off = original_pt.position() - start_pos
-        assert pt_off >= 0, "Point should always be on screen"
         if mark:
-            mark_off = (mark.position() - start_pos)
+            mark_off = mark.position() - start_pos
         else:
             mark_off = pt_off
 
         highlight = mark_off < 0
 
-        row = 0
-        while row < self.rows:
+        cursor: tuple[int, int] | None = None
+        adjusted_pt = original_pt
+
+        row = start_row
+        while row < end_row:
+            # Record doc position at this row BEFORE format_line advances the point.
+            self.row_positions[row] = self.doc.get_point().position()
+
             line, col_map = self.layout.format_line()
-            pt = self.doc.get_point()
             delta = len(col_map)
-            start_pt = pt
             toggle_mark = -1
             toggle_pt = -1
-            # found the point?
+
             logging.info(f"delta {delta} pt_off {pt_off} end {self.doc.at_end()}")
+
             if 0 <= pt_off < delta:
-                # deferred move to preferred column?
+                # Deferred move to preferred column?
                 if not at_end and self.layout.pin_preferred_col:
                     assert pt_off == 0, f"panic: pt_off={pt_off}"
                     pt_off = self.layout.offset_for_column(self.layout.preferred_col, col_map)
-                    original_pt = original_pt.move(pt_off)
+                    adjusted_pt = adjusted_pt.move(pt_off)
                     if not mark:
                         mark_off = pt_off
                 col = col_map[pt_off]
@@ -151,7 +175,7 @@ class Display:
                 cursor = (row, col)
 
             if 0 <= mark_off < delta:
-                # found the mark?
+                # Found the mark?
                 col = col_map[mark_off]
                 toggle_mark = col
 
@@ -172,12 +196,58 @@ class Display:
 
             row += 1
 
-        self.doc.set_point(original_pt)
+        return cursor, adjusted_pt
+
+    def _classify_paint_case(self, prev_top_pos: int | None, edit_keep: int | None) -> str:
+        """Map the four cases from docs/rendering.md Phase 2 table.
+
+        prev_top_pos: self.top_pos from before find_top this frame (or None on first paint).
+        edit_keep:    self.layout.last_truncate_keep consumed this frame (entries that
+                      survived the last edit truncation), or None if no truncation.
+        Returns one of: 'full', 'scroll', 'local_edit', 'no_scroll'.
+        """
+        if prev_top_pos is None or prev_top_pos != self.top_pos:
+            # Top moved → recenter / scroll / first paint.
+            return 'full'
+        # Top unchanged.
+        if edit_keep is not None:
+            return 'local_edit'
+        return 'no_scroll'
+
+    def paint(self, mark: Location|None=None) -> tuple[int, int]:
+        """
+        Paint the buffer content to the screen, returning the cursor position.
+        Leaves point unchanged. The caller is responsible for the status line,
+        restoring the cursor, and refreshing the screen.
+        """
+        original_pt = self.doc.get_point()
+        at_end = self.doc.at_end()
+
+        # Capture Phase 2 state before find_top changes things.
+        prev_top_pos = self.top_pos
+        edit_keep = self.layout.last_truncate_keep
+        self.layout.last_truncate_keep = None
+
+        self.find_top()         # move point to show at top-left of screen
+
+        lad = self.layout.bol_ladder
+        top_idx = lad.top
+
+        _case = self._classify_paint_case(prev_top_pos, edit_keep)
+
+        # --- Task 2.6a: every case does a full redraw (no behavior change) ---
+        self.scr.clear()        # move cursor to 0,0
+        cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
+        if cursor is None:
+            cursor = (0, 0)     # shouldn't happen for a full render with point on screen
+
+        self.doc.set_point(adjusted_pt)
 
         if not self.layout.pin_preferred_col:
             self.layout.preferred_col = cursor[1] if not self.doc.at_end() else 0
         else:
             self.layout.pin_preferred_col = False
 
-        return cursor
+        self.prev_cursor = cursor
 
+        return cursor

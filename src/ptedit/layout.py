@@ -85,6 +85,7 @@ class Layout:
         self.pin_preferred_col = False  # True if cursor should track preferred col
 
         self.bol_ladder = Ladder()
+        self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
 
     # ----- line moves (absorbed from Display) -----
 
@@ -137,7 +138,11 @@ class Layout:
             if entry.position() + self.cols >= edit_pos:
                 break
             keep += 1
+        original_len = len(self.bol_ladder)
         self.bol_ladder.truncate_to(keep)
+        # Record the truncation count only when entries were actually dropped.
+        if keep < original_len:
+            self.last_truncate_keep = keep
 
     def _reanchor(self, cursor: Location):
         """Rebuild the ladder fresh: backscan from cursor to nearest newline
