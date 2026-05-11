@@ -105,3 +105,56 @@ def test_recenter():
     # now Ctrl-L: should force a recenter so the cursor is back near preferred_row
     dpy.recenter()
     assert dpy.top_pos != centered_top  # top moved to re-center on the new cursor
+
+
+class _RecordingScreen(display.Screen):
+    """Minimal recording screen that counts put() calls."""
+    def __init__(self, height: int, width: int):
+        super().__init__(height, width)
+        self.events: list[tuple[int, bool]] = []
+
+    def put(self, ch: int, highlight: bool = False):
+        self.events.append((ch, highlight))
+
+
+def test_no_scroll_emits_nothing():
+    """The no-scroll fast path must emit zero put() calls."""
+    doc = document.Document(ALICE_FLOW)
+    scr = _RecordingScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    doc.set_point_start().move_point(4000)
+    dpy.paint()                          # initial full redraw
+    n_after_full = len(scr.events)
+    dpy.layout.move_forward_line()       # small move, no scroll, no selection
+    dpy.paint()
+    assert len(scr.events) == n_after_full, (
+        f"no-scroll paint should emit zero puts, "
+        f"but got {len(scr.events) - n_after_full} extra events"
+    )
+
+
+def test_local_edit_renders_tail_only():
+    """An edit in the middle of the screen re-renders only the tail rows.
+
+    A fresh document is one big piece, so the first insert at position 4000
+    splits that piece and unlinks it — invalidating all ladder entries, which
+    forces a 'full' repaint.  We repaint after the first insert to re-establish
+    the ladder over the now-fragmented piece table.  The second insert is
+    *compatible* (extends the existing ins piece) so it only invalidates by
+    position, leaving entries above the edit intact → 'local_edit' fast path.
+    """
+    doc = document.Document(ALICE_FLOW)
+    scr = _RecordingScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    doc.set_point_start().move_point(4000)   # somewhere mid-doc, mid-screen
+    dpy.paint()                              # full redraw — establishes top anchor
+    doc.insert('x')                          # first insert: splits the big piece
+    dpy.paint()                              # full repaint: ladder now over 2 pieces
+    n0 = len(scr.events)                     # baseline after ladder is fragmented
+    doc.insert('y')                          # second insert: compatible, position-only truncation
+    dpy.paint()
+    n1 = len(scr.events) - n0
+    full = 23 * 80                           # rows * cols puts for a full render
+    assert 0 < n1 < full, (
+        f"local edit should re-render only the tail, got {n1} puts vs {full} full"
+    )

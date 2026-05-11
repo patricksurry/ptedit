@@ -86,6 +86,7 @@ class Layout:
 
         self.bol_ladder = Ladder()
         self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
+        self.last_truncate_top: int | None = None   # bol_ladder.top at the time of truncation
 
     # ----- line moves (absorbed from Display) -----
 
@@ -139,10 +140,12 @@ class Layout:
                 break
             keep += 1
         original_len = len(self.bol_ladder)
+        old_top = self.bol_ladder.top
         self.bol_ladder.truncate_to(keep)
         # Record the truncation count only when entries were actually dropped.
         if keep < original_len:
             self.last_truncate_keep = keep
+            self.last_truncate_top = old_top
 
     def _reanchor(self, cursor: Location):
         """Rebuild the ladder fresh: backscan from cursor to nearest newline

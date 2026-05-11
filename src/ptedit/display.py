@@ -198,12 +198,20 @@ class Display:
 
         return cursor, adjusted_pt
 
-    def _classify_paint_case(self, prev_top_pos: int | None, edit_keep: int | None) -> str:
+    def _classify_paint_case(
+            self,
+            prev_top_pos: int | None,
+            edit_keep: int | None,
+            old_top_idx: int | None,
+    ) -> str:
         """Map the four cases from docs/rendering.md Phase 2 table.
 
         prev_top_pos: self.top_pos from before find_top this frame (or None on first paint).
         edit_keep:    self.layout.last_truncate_keep consumed this frame (entries that
                       survived the last edit truncation), or None if no truncation.
+        old_top_idx:  the ladder's top index AT THE MOMENT of edit truncation (before
+                      truncate_to ran). None if there was no truncation this frame.
+                      Used to detect truncations that reached or passed the top row.
         Returns one of: 'full', 'scroll', 'local_edit', 'no_scroll'.
         """
         if prev_top_pos is None or prev_top_pos != self.top_pos:
@@ -211,8 +219,52 @@ class Display:
             return 'full'
         # Top unchanged.
         if edit_keep is not None:
+            # If the truncation reached or passed the old top, the whole screen
+            # is invalid (K would be <= 0). Treat as full even though top_pos
+            # happened to be stable — find_top may have reconstructed it from
+            # scratch via reanchor.
+            if old_top_idx is None or edit_keep <= old_top_idx:
+                return 'full'
             return 'local_edit'
         return 'no_scroll'
+
+    def _locate_cursor_cell(
+            self,
+            original_pt: Location,
+            top_idx: int,
+            at_end: bool,
+    ) -> tuple[tuple[int, int], Location]:
+        """Compute the cursor's screen cell without emitting any put() calls.
+
+        Returns ((row, col), adjusted_pt). Handles the pin_preferred_col
+        deferred-column move, mirroring the same logic in _render_rows.
+        Falls back to prev_cursor if the cursor is not in [0, rows).
+        """
+        lad = self.layout.bol_ladder
+        idx = self.layout._find_line_index(original_pt)
+        row = idx - top_idx
+        if not (0 <= row < self.rows):
+            # Shouldn't happen — find_top keeps the cursor on screen — but recover.
+            adjusted_pt = original_pt
+            if self.layout.pin_preferred_col:
+                self.layout.pin_preferred_col = False
+            return (self.prev_cursor or (0, 0)), adjusted_pt
+
+        # Set point at this row's BoL, format the line to get col_map.
+        self.doc.set_point(lad[idx])
+        _line, col_map = self.layout.format_line()
+
+        pt_off = original_pt.position() - lad[idx].position()
+        adjusted_pt = original_pt
+
+        # Deferred move to preferred column (same logic as _render_rows).
+        if not at_end and self.layout.pin_preferred_col:
+            assert pt_off == 0, f"panic: pt_off={pt_off}"
+            pt_off = self.layout.offset_for_column(self.layout.preferred_col, col_map)
+            adjusted_pt = adjusted_pt.move(pt_off)
+
+        col = col_map[pt_off] if pt_off < len(col_map) else 0
+        return (row, col), adjusted_pt
 
     def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
@@ -227,19 +279,51 @@ class Display:
         prev_top_pos = self.top_pos
         edit_keep = self.layout.last_truncate_keep
         self.layout.last_truncate_keep = None
+        # last_truncate_top is the ladder.top at the moment the edit truncated the ladder —
+        # i.e., before truncation ran. Used to detect truncations that reached/passed the top.
+        old_top_idx = self.layout.last_truncate_top
+        self.layout.last_truncate_top = None
 
         self.find_top()         # move point to show at top-left of screen
 
         lad = self.layout.bol_ladder
         top_idx = lad.top
 
-        _case = self._classify_paint_case(prev_top_pos, edit_keep)
+        case = self._classify_paint_case(prev_top_pos, edit_keep, old_top_idx)
 
-        # --- Task 2.6a: every case does a full redraw (no behavior change) ---
-        self.scr.clear()        # move cursor to 0,0
-        cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
-        if cursor is None:
-            cursor = (0, 0)     # shouldn't happen for a full render with point on screen
+        if case == 'full':
+            # Top changed (recenter / scroll / first paint): full redraw.
+            self.scr.clear()
+            cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
+            if cursor is None:
+                cursor = (0, 0)     # shouldn't happen for a full render with point on screen
+
+        elif case == 'local_edit':
+            # Top unchanged, an edit truncated the ladder to edit_keep entries.
+            # Rows [0, K) are byte-stable on screen; only [K, rows) need re-rendering.
+            # Guaranteed 0 < K < rows here: if truncation reached top or above,
+            # find_top would have recentered → classified 'full'.
+            K = edit_keep - top_idx
+            cursor, adjusted_pt = self._render_rows(K, self.rows, mark, at_end, top_idx, original_pt)
+            if cursor is None:
+                # Defensive: cursor is in an unchanged row [0, K) — recover from prev_cursor.
+                cursor = self.prev_cursor or (0, 0)
+
+        else:
+            assert case == 'no_scroll'
+            # Top unchanged, no edit. All rows are byte-stable.
+            if mark is not None and mark.position() != original_pt.position():
+                # Active selection: highlight region may have changed. For this Python
+                # reference, fall back to full redraw. Cell-granular highlight delta
+                # is a 6502 concern.
+                self.scr.clear()
+                cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
+                if cursor is None:
+                    cursor = (0, 0)
+            else:
+                # Nothing on screen changed. Emit ZERO put calls.
+                # Still compute the cursor cell so the terminal cursor can be placed.
+                cursor, adjusted_pt = self._locate_cursor_cell(original_pt, top_idx, at_end)
 
         self.doc.set_point(adjusted_pt)
 
