@@ -159,7 +159,8 @@ class Layout:
         while self.doc.get_point().is_strictly_before(cursor):
             self.format_line()
             self.bol_ladder.append(self.doc.get_point())
-        # Top is the screen-anchor; for re-anchor, set it = first.
+        # Top is the screen-anchor; for re-anchor, set it = first (== 0).
+        # reset() already did this, kept for clarity vs the spec's first/top/last.
         self.bol_ladder.top = self.bol_ladder.first
         self.doc.set_point(save_pt)
 
@@ -185,7 +186,7 @@ class Layout:
         save_pt = self.doc.get_point()
         self.doc.set_point(self.bol_ladder[-1])
         added = 0
-        while self.doc.get_point().is_strictly_before(cursor) and added <= self.rows:
+        while self.doc.get_point().is_strictly_before(cursor) and added < self.rows:
             self.format_line()
             self.bol_ladder.append(self.doc.get_point())
             added += 1
@@ -224,6 +225,11 @@ class Layout:
         self.doc.set_point(self.bol_ladder[i])
 
     def bol_to_next_bol(self):
+        """Move from a BoL to the next BoL. Precondition: point is on a BoL.
+
+        Uses the ladder when the next BoL is cached; otherwise formats one
+        line forward and appends it.
+        """
         bol = self.doc.get_point()
         self._ensure_bracketed(bol)
         i = self._find_line_index(bol)
@@ -236,9 +242,10 @@ class Layout:
             self.bol_ladder.append(self.doc.get_point())
 
     def bol_to_prev_bol(self):
-        """
-        Move from BOL to the previous BOL.
-        This is a no-op at the document start.
+        """Move from a BoL to the previous BoL.
+
+        No-op at document start. Uses the ladder when the previous BoL is
+        cached; otherwise re-anchors on the line above and steps back.
         """
         if self.doc.at_start():
             return
@@ -248,10 +255,12 @@ class Layout:
         if i > 0:
             self.doc.set_point(self.bol_ladder[i - 1])
             return
-        # bol is the oldest entry — re-anchor before it.
+        # bol is the oldest entry — re-anchor on the line before it, then take
+        # the BoL just before bol (ladder[-2]). If that re-anchor produced only
+        # a single entry, it's bol-1 itself (an empty line just above bol) and
+        # _reanchor already left the point there — nothing more to do.
         self.doc.move_point(-1)
         self._reanchor(self.doc.get_point())
-        # Now bol must be the newest of a fresh ladder; new prev is at -2.
         if len(self.bol_ladder) >= 2:
             self.doc.set_point(self.bol_ladder[-2])
 
