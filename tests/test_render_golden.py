@@ -89,3 +89,26 @@ def test_golden_end_to_top():
         dpy.layout.move_backward_page()
         dpy.paint()
     assert_golden('end_to_top', scr.encode())
+
+
+def test_golden_sticky_top():
+    """Small cursor moves within the window must NOT scroll (sticky top).
+
+    Move to a mid-doc position so the screen is stable, then step forward
+    one visual line five times.  Each move keeps the cursor well within the
+    window (rows=23, guard=3) so the top anchor must stay fixed: the screen
+    content of row 0 should be identical across all six paints.
+    """
+    dpy, doc, scr = _make_display()
+    # Put cursor 5 pages in so there is room above and below.
+    for _ in range(5):
+        dpy.layout.move_forward_page()
+    dpy.paint()
+    first_top = dpy.top_pos          # record anchor after initial paint
+    for _ in range(5):
+        dpy.layout.move_forward_line()
+        dpy.paint()
+        assert dpy.top_pos == first_top, (
+            f"sticky top violated: top moved from {first_top} to {dpy.top_pos}"
+        )
+    assert_golden('sticky_top', scr.encode())

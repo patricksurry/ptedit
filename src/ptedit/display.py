@@ -27,6 +27,7 @@ class Display:
         self.guard_rows = guard_rows
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
         self.message = ''
+        self.top_pos: int | None = None     # document position at screen row 0 last frame
         self.doc.watch(self.change_handler)
 
     def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
@@ -45,22 +46,60 @@ class Display:
             logging.warning(msg)
 
     def find_top(self):
-        """Move point to top-of-screen (preferred_row visual lines above the
-        cursor's line) and record that BoL as the ladder's `top` index.
-
-        The navigation is unchanged from the naive version (clamp + walk back
-        preferred_row lines); we additionally pin `bol_ladder.top` so later
-        frames and Phase 2 case-classification can reference it.
+        """Position the screen with a sticky top: keep last frame's top unless
+        the cursor moved out of the visible window or into the guard zone,
+        per docs/rendering.md. Sets bol_ladder.top and moves point there.
         """
-        self.layout.clamp_to_bol()
-        for _ in range(self.preferred_row):
-            if self.doc.at_start():
-                break
-            self.layout.bol_to_prev_bol()
-        # Record where top-of-screen landed as a ladder index.
-        top_pt = self.doc.get_point()
-        self.layout._ensure_bracketed(top_pt)
-        self.layout.bol_ladder.top = self.layout._find_line_index(top_pt)
+        cursor = self.doc.get_point()
+        self.layout._ensure_bracketed(cursor)        # Phase 1: cursor is now in the ladder
+        lad = self.layout.bol_ladder
+        cur_idx = self.layout._find_line_index(cursor)
+
+        # Find last frame's top in the (possibly rebuilt) ladder.
+        top_idx = None
+        if self.top_pos is not None:
+            for i, e in enumerate(lad):
+                if e.position() == self.top_pos:
+                    top_idx = i
+                    break
+
+        if top_idx is not None and 0 <= cur_idx - top_idx < self.rows:
+            # cursor is on-screen relative to the sticky top — adjust for guard zone
+            delta = cur_idx - top_idx
+            if delta < self.guard_rows:
+                top_idx = max(0, cur_idx - self.guard_rows)
+            elif delta >= self.rows - self.guard_rows:
+                top_idx = cur_idx - (self.rows - self.guard_rows - 1)
+                if top_idx < 0:
+                    top_idx = 0
+            # else: no scroll, keep top_idx
+        else:
+            # cursor off-screen (or no prior top, or ladder rebuilt) → recenter
+            # Walk back preferred_row visual lines from the cursor's line.
+            self.layout.clamp_to_bol()
+            for _ in range(self.preferred_row):
+                if self.doc.at_start():
+                    break
+                self.layout.bol_to_prev_bol()
+            recentered_top = self.doc.get_point()
+            self.layout._set_window(recentered_top, cursor)
+            lad = self.layout.bol_ladder
+            top_idx = self.layout._find_line_index(recentered_top)
+
+        # Capture the top position before _extend_lines, which may evict old ladder
+        # entries (Ladder.MAX overflow shifts all indices).
+        chosen_pos = lad[top_idx].position()
+
+        # Ensure the ladder covers [top_idx, top_idx + rows) so paint can rely on cached BoLs.
+        self.layout._extend_lines(top_idx + self.rows)
+
+        # Re-find top_idx after _extend_lines in case overflow shifted the ladder.
+        lad = self.layout.bol_ladder
+        top_idx = next(i for i, e in enumerate(lad) if e.position() == chosen_pos)
+
+        lad.top = top_idx
+        self.top_pos = chosen_pos
+        self.doc.set_point(lad[top_idx])
 
     def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
