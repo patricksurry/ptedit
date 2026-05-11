@@ -45,13 +45,22 @@ class Display:
             logging.warning(msg)
 
     def find_top(self):
-        """Move the point to the top-left of the screen by walking
-        preferred_row visual lines back from the current point."""
+        """Move point to top-of-screen (preferred_row visual lines above the
+        cursor's line) and record that BoL as the ladder's `top` index.
+
+        The navigation is unchanged from the naive version (clamp + walk back
+        preferred_row lines); we additionally pin `bol_ladder.top` so later
+        frames and Phase 2 case-classification can reference it.
+        """
         self.layout.clamp_to_bol()
         for _ in range(self.preferred_row):
             if self.doc.at_start():
-                return
+                break
             self.layout.bol_to_prev_bol()
+        # Record where top-of-screen landed as a ladder index.
+        top_pt = self.doc.get_point()
+        self.layout._ensure_bracketed(top_pt)
+        self.layout.bol_ladder.top = self.layout._find_line_index(top_pt)
 
     def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
