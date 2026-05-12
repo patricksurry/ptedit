@@ -88,8 +88,17 @@ class Display:
                     break
                 self.layout.bol_to_prev_bol()
             recentered_top = self.doc.get_point()
-            self.layout._set_window(recentered_top, cursor)
+            # After clamp_to_bol + bol_to_prev_bol steps, the point is on a
+            # ladder entry in the common case (each step either follows the
+            # cached ladder or calls _reanchor which rebuilds the ladder around
+            # the new position). Verify and skip the reset+rebuild _set_window
+            # call; fall back only in the degenerate case (bol_to_prev_bol with
+            # a single-entry ladder after _reanchor left the point off-ladder).
             lad = self.layout.bol_ladder
+            recentered_pos = recentered_top.position()
+            if not any(e.position() == recentered_pos for e in lad):
+                self.layout._set_window(recentered_top, cursor)
+                lad = self.layout.bol_ladder
             top_idx = self.layout._find_line_index(recentered_top)
 
         # Capture the top position before _extend_lines, which may evict old ladder

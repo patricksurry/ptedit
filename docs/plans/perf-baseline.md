@@ -103,3 +103,19 @@ as it formats (instead of `find_top` doing a separate `_extend_lines` pass
 the render then ignores) so `full`/`scroll` reuse cached work. Left out of
 this milestone — the implementation is faithful to `docs/rendering.md`'s
 *structure*; this is a pure optimization within the `full` case.
+
+### Stage 2 + recenter optimization
+
+`find_top`'s recenter no longer calls `_set_window` (which `reset()`s the
+ladder and re-formats from a hard BoL); after the `bol_to_prev_bol` walk
+the new top is already a ladder entry, so we just re-index. A fallback to
+`_set_window` is kept for the degenerate single-entry case in
+`bol_to_prev_bol` where the point may not be on a ladder entry. Captured at
+this commit (see git log).
+
+| scenario       | pre-rewrite | new (pre-opt) | new (+recenter opt) |
+|----------------|-------------|---------------|---------------------|
+| insert         | 150         | 154           | 181                 |
+| up_from_end    | 525         | 1121          | 1181                |
+| pgup_from_end  | 218         | 181           | 197                 |
+| pgdn_from_top  | 346         | 209           | 257                 |
