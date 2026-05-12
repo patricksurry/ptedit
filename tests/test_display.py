@@ -155,6 +155,8 @@ def test_local_edit_renders_tail_only():
     dpy.paint()
     n1 = len(scr.events) - n0
     full = 23 * 80                           # rows * cols puts for a full render
+    # The edit is mid-screen, so the tail render is strictly fewer puts than a
+    # full redraw (rows above the edit are left untouched on screen).
     assert 0 < n1 < full, (
         f"local edit should re-render only the tail, got {n1} puts vs {full} full"
     )

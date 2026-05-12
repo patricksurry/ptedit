@@ -129,9 +129,8 @@ class Display:
         lad = self.layout.bol_ladder
 
         if start_row > 0:
-            # Partial render: position the cursor on screen at the right row.
-            # (Dead code for this task — callers always pass start_row=0 — but
-            # written correctly for 2.6b partial renders.)
+            # Partial render (local-edit tail): position the cursor at the
+            # first row we re-render; rows above are left as the last frame.
             self.scr.move(start_row, 0)
 
         # Set the point at the first row we render, then format_line advances it.
@@ -212,7 +211,9 @@ class Display:
         old_top_idx:  the ladder's top index AT THE MOMENT of edit truncation (before
                       truncate_to ran). None if there was no truncation this frame.
                       Used to detect truncations that reached or passed the top row.
-        Returns one of: 'full', 'scroll', 'local_edit', 'no_scroll'.
+        Returns one of: 'full', 'local_edit', 'no_scroll'. (The doc's "scroll"
+        case folds into 'full' here — both re-render the whole window in Python;
+        only a real terminal block-copy would distinguish them.)
         """
         if prev_top_pos is None or prev_top_pos != self.top_pos:
             # Top moved → recenter / scroll / first paint.
