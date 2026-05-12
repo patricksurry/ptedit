@@ -72,3 +72,34 @@ perftest path.
 
 Severe regression expected — this is the floor against which Stage 2 is
 measured.
+
+## Stage 2 — new ladder (rendering redesign)
+
+`[first, top, last)` ladder per `docs/rendering.md`: edit-time truncation,
+Phase 1 cursor location (bracket / extend / re-anchor), sticky top with
+guard-zone scrolling, and the four Phase 2 redraw cases (full / scroll /
+local-edit tail render / no-scroll skip). Captured at commit `d97aa48`
+against `tests/alice1flow.asc` under the mock-Screen perftest path.
+
+| scenario       | pre-rewrite fps | naive fps | new fps | new vs pre-rewrite | new vs naive |
+|----------------|-----------------|-----------|---------|--------------------|--------------|
+| insert         | 150             | 101       | 154     | 103%               | 1.5×         |
+| up_from_end    | 525             | 122       | 1121    | 214%               | 9.2×         |
+| pgup_from_end  | 218             | 57        | 181     | 83%                | 3.2×         |
+| pgdn_from_top  | 346             | 122       | 209     | 60%                | 1.7×         |
+
+Common interactive operations win big: `up_from_end` (line-by-line cursor
+movement on a stable window) is the `no_scroll` fast path → zero screen
+writes, 9× faster than naive and 2× faster than pre-rewrite. `insert`
+(type + back-char + back-line each iteration) is `local_edit` + `no_scroll`
+→ marginally above pre-rewrite.
+
+`pgup_from_end` / `pgdn_from_top` are below pre-rewrite. Page scrolls move
+the cursor a full screen, which always changes `top` → the `full` redraw
+case. Our `full` redraw re-formats every visible line from scratch via
+`format_line`; the pre-rewrite renderer reused cached BoL marks during the
+render. A known follow-up: have `_render_rows` consult / extend the ladder
+as it formats (instead of `find_top` doing a separate `_extend_lines` pass
+the render then ignores) so `full`/`scroll` reuse cached work. Left out of
+this milestone — the implementation is faithful to `docs/rendering.md`'s
+*structure*; this is a pure optimization within the `full` case.
