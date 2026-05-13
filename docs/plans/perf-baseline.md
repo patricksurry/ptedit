@@ -135,3 +135,54 @@ single formatting pass over the visible window per frame.
 | up_from_end    | 525         | 1181            | 1304                  |
 | pgup_from_end  | 218         | 197             | 247                   |
 | pgdn_from_top  | 346         | 257             | 316                   |
+
+### Stage 2 + simplification refactor (final)
+
+Bundled clarity refactor: dropped `_locate_cursor_cell` (replaced by an
+`emit=False` flag on `_render_rows`); `find_top` returns a `recentered`
+bool so `paint` no longer reverse-engineers it from a `prev_top_pos`
+delta; inlined `_locate_cursor` into `ensure_bracketed`; renamed
+`_ensure_bracketed`/`_find_line_index`/`_reanchor` public (they're used
+by `Display`); replaced `last_truncate_top: int | None` with a
+`last_truncate_invalidated_top: bool` flag; deleted dead `row_positions`
+state and a stray debug `logging.info` in `_render_rows`' hot loop.
+
+| scenario       | pre-rewrite | new (+render-extends) | new (+refactor)  |
+|----------------|-------------|-----------------------|------------------|
+| insert         | 150         | 267                   | **304**          |
+| up_from_end    | 525         | 1304                  | **3358**         |
+| pgup_from_end  | 218         | 247                   | **250**          |
+| pgdn_from_top  | 346         | 316                   | **335**          |
+
+The `up_from_end` 2.5× jump is almost certainly the deleted hot-loop
+`logging.info`: it builds the f-string (and calls `doc.at_end()`) on
+every row of every render, even when the level filters the message
+away. With ~3000 paints/sec × 23 rows ≈ 70 000 spurious format calls
+per second of the perftest, removing it was a real drag-removal, not
+just hygiene.
+
+### Summary vs pre-rewrite
+
+| scenario       | pre-rewrite | naive | final | final / pre-rewrite |
+|----------------|-------------|-------|-------|---------------------|
+| insert         | 150         | 101   | 304   | **2.0×**            |
+| up_from_end    | 525         | 122   | 3358  | **6.4×**            |
+| pgup_from_end  | 218         | 57    | 250   | 115%                |
+| pgdn_from_top  | 346         | 122   | 335   | 97%                 |
+
+Common interactive ops (line nav, typing) are dramatically faster.
+Page scrolls land within noise of pre-rewrite — they're full redraws
+in both implementations, and the ladder primes `format_line` similarly
+in each.
+
+File sizes:
+
+| file              | pre-rewrite | final | delta |
+|-------------------|-------------|-------|-------|
+| `src/ptedit/layout.py`  | 274   | 343   | +69   |
+| `src/ptedit/display.py` | 162   | 311   | +149  |
+
+The growth is the doc's design surface: `Ladder` + Phase 1 (`reanchor`/
+`ensure_bracketed`/`_extend_to`/`line_index`) in Layout; sticky top
+with guard-zone scrolling and the four Phase 2 redraw cases (full /
+scroll / local-edit tail / no-scroll skip) in Display.
