@@ -119,3 +119,19 @@ this commit (see git log).
 | up_from_end    | 525         | 1121          | 1181                |
 | pgup_from_end  | 218         | 181           | 197                 |
 | pgdn_from_top  | 346         | 209           | 257                 |
+
+### Stage 2 + render-extends-ladder optimization
+
+`Display._render_rows` now extends the ladder as it formats each line
+(appending the next BoL when not already cached). This lets `find_top`
+drop the eager `_extend_lines` pass and the overflow-defense `chosen_pos`
+re-find. `_set_window` (recenter fallback) is replaced by `_reanchor` —
+the forward-extend half is now `_render_rows`'s job. Net: ~40 lines off,
+single formatting pass over the visible window per frame.
+
+| scenario       | pre-rewrite | new (+recenter) | new (+render-extends) |
+|----------------|-------------|-----------------|-----------------------|
+| insert         | 150         | 181             | 267                   |
+| up_from_end    | 525         | 1181            | 1304                  |
+| pgup_from_end  | 218         | 197             | 247                   |
+| pgdn_from_top  | 346         | 257             | 316                   |

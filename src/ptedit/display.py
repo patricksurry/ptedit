@@ -80,40 +80,26 @@ class Display:
                     top_idx = 0
             # else: no scroll, keep top_idx
         else:
-            # cursor off-screen (or no prior top, or ladder rebuilt) → recenter
-            # Walk back preferred_row visual lines from the cursor's line.
+            # cursor off-screen / no prior top / ladder rebuilt → recenter
             self.layout.clamp_to_bol()
             for _ in range(self.preferred_row):
                 if self.doc.at_start():
                     break
                 self.layout.bol_to_prev_bol()
             recentered_top = self.doc.get_point()
-            # After clamp_to_bol + bol_to_prev_bol steps, the point is on a
-            # ladder entry in the common case (each step either follows the
-            # cached ladder or calls _reanchor which rebuilds the ladder around
-            # the new position). Verify and skip the reset+rebuild _set_window
-            # call; fall back only in the degenerate case (bol_to_prev_bol with
-            # a single-entry ladder after _reanchor left the point off-ladder).
+            # After clamp_to_bol + bol_to_prev_bol the point is normally a
+            # ladder entry already (each step follows the ladder or re-anchors
+            # around the new position).  Fall back to _reanchor only in the
+            # degenerate case (single-entry ladder after _reanchor inside
+            # bol_to_prev_bol left the point off-ladder).
             lad = self.layout.bol_ladder
-            recentered_pos = recentered_top.position()
-            if not any(e.position() == recentered_pos for e in lad):
-                self.layout._set_window(recentered_top, cursor)
+            if not any(e.position() == recentered_top.position() for e in lad):
+                self.layout._reanchor(recentered_top)
                 lad = self.layout.bol_ladder
             top_idx = self.layout._find_line_index(recentered_top)
 
-        # Capture the top position before _extend_lines, which may evict old ladder
-        # entries (Ladder.MAX overflow shifts all indices).
-        chosen_pos = lad[top_idx].position()
-
-        # Ensure the ladder covers [top_idx, top_idx + rows) so paint can rely on cached BoLs.
-        self.layout._extend_lines(top_idx + self.rows)
-
-        # Re-find top_idx after _extend_lines in case overflow shifted the ladder.
-        lad = self.layout.bol_ladder
-        top_idx = next(i for i, e in enumerate(lad) if e.position() == chosen_pos)
-
         lad.top = top_idx
-        self.top_pos = chosen_pos
+        self.top_pos = lad[top_idx].position()
         self.doc.set_point(lad[top_idx])
 
     def _render_rows(
@@ -127,8 +113,8 @@ class Display:
     ) -> tuple[tuple[int, int] | None, Location]:
         """Render ladder rows [start_row, end_row) to the screen.
 
-        Assumes the ladder covers these rows (find_top's _extend_lines did that).
-        Returns (cursor_cell, adjusted_pt) where cursor_cell is (row, col) if the
+        Extends the ladder as it formats each row (appending the next BoL when
+        not already cached). Returns (cursor_cell, adjusted_pt) where cursor_cell is (row, col) if the
         cursor falls in [start_row, end_row), else None. adjusted_pt is original_pt
         possibly adjusted by the deferred pin_preferred_col column fixup.
 
@@ -141,6 +127,15 @@ class Display:
             # Partial render (local-edit tail): position the cursor at the
             # first row we re-render; rows above are left as the last frame.
             self.scr.move(start_row, 0)
+
+        # Ensure lad[top_idx + start_row] exists. For local_edit the row-K BoL
+        # was truncated; format one line forward from the last surviving entry.
+        while top_idx + start_row >= len(lad):
+            self.doc.set_point(lad[-1])
+            self.layout.format_line()
+            if self.doc.at_end():
+                break
+            lad.append(self.doc.get_point())
 
         # Set the point at the first row we render, then format_line advances it.
         first_loc = lad[top_idx + start_row]
@@ -201,6 +196,10 @@ class Display:
                     case _ if ch < 32: ch = ord(' ')
                     case _: pass
                 self.scr.put(ch, highlight)
+
+            # Cache the next row's BoL for future frames.
+            if not self.doc.at_end() and top_idx + row + 1 >= len(lad):
+                lad.append(self.doc.get_point())
 
             row += 1
 

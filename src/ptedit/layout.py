@@ -200,35 +200,6 @@ class Layout:
             added += 1
         self.doc.set_point(save_pt)
 
-    def _set_window(self, top_loc: Location, cursor_loc: Location):
-        """Rebuild bol_ladder spanning [hard-BoL at-or-before top_loc .. cursor_loc].
-        Used by find_top when recentering."""
-        save = self.doc.get_point()
-        self.doc.set_point(top_loc)
-        if not self.doc.at_start():
-            self.doc.find_char_backward('\n')       # hard BoL at-or-before top_loc
-        self.bol_ladder.reset(self.doc.get_point())
-        while self.doc.get_point().is_strictly_before(cursor_loc):
-            self.format_line()
-            self.bol_ladder.append(self.doc.get_point())
-        self.doc.set_point(save)
-
-    def _extend_lines(self, n: int):
-        """Ensure the ladder has at least n entries (formatting forward from the
-        last cached BoL), or stops at doc end or Ladder.MAX (to avoid evicting
-        the top entry via overflow)."""
-        target = min(n, Ladder.MAX)
-        if len(self.bol_ladder) >= target:
-            return
-        save = self.doc.get_point()
-        self.doc.set_point(self.bol_ladder[-1])
-        while len(self.bol_ladder) < target and not self.doc.at_end():
-            self.format_line()
-            if self.doc.at_end():
-                break
-            self.bol_ladder.append(self.doc.get_point())
-        self.doc.set_point(save)
-
     def _ensure_bracketed(self, cursor: Location | None = None):
         """Phase 1: ensure the ladder brackets `cursor` (defaults to point)."""
         if cursor is None:
