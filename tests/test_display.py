@@ -95,16 +95,17 @@ def test_recenter():
     # paint somewhere mid-doc, then scroll the cursor within the window
     doc.set_point_start().move_point(4000)
     dpy.paint()
-    centered_top = dpy.top_pos
+    centered_top = dpy.top_loc
     # move the cursor down a few lines (stays within the window, sticky top holds)
     for _ in range(3):
         dpy.layout.move_forward_line()
         dpy.paint()
     # top should still be the sticky one (cursor hasn't left the window)
-    assert dpy.top_pos == centered_top
+    assert dpy.top_loc == centered_top
     # now Ctrl-L: should force a recenter so the cursor is back near preferred_row
     dpy.recenter()
-    assert dpy.top_pos != centered_top  # top moved to re-center on the new cursor
+    dpy.paint()
+    assert dpy.top_loc != centered_top  # top moved to re-center on the new cursor
 
 
 class _RecordingScreen(display.Screen):

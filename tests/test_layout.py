@@ -19,8 +19,6 @@ def test_ladder_empty():
     assert not lad
     assert len(lad) == 0
     assert lad.top == 0
-    assert lad.first == 0
-    assert lad.last == 0
 
 
 def test_ladder_append_and_iter():
@@ -66,7 +64,7 @@ def test_ladder_drops_oldest_past_max():
 
 def test_bol():
     doc = document.Document('the big\t 012345678901234567890123456789 number')
-    fmt = layout.Layout(doc, 24, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, tab=4)
 
     assert doc.at_start()
     fmt.bol_to_next_bol()
@@ -79,7 +77,7 @@ def test_bol():
 
 def test_format():
     doc = document.Document('the \tbig\t 012345678901234567890123456789\r\x01 number\x7f')
-    fmt = layout.Layout(doc, 24, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, tab=4)
     assert fmt.format_line()[0] == b'the \t\0\0\0big\t ' + bytes(11)
     assert fmt.format_line()[0] == b'012345678901234567890123'
     assert fmt.format_line()[0] == b'456789\x01M\x01A number\x027F' + bytes(4)
@@ -87,7 +85,7 @@ def test_format():
 
 def test_column_for_offset():
     doc = document.Document('456789\r\x01 number\x7f')
-    fmt = layout.Layout(doc, 24, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, tab=4)
     line, col_map = fmt.format_line()
     # source data:   456789.. number.#
     #                012345678901234567890123
@@ -103,7 +101,7 @@ def test_column_for_offset():
 
 def test_offset_for_column():
     doc = document.Document('456789\r\x01')
-    fmt = layout.Layout(doc, 24, 24, 8)
+    fmt = layout.Layout(doc, 24, 24, tab=4)
     line, col_map = fmt.format_line()
     assert line == b'456789\x01M\x01A' + bytes(14)
     assert layout.Layout.offset_for_column(0, col_map) == 0
@@ -138,7 +136,7 @@ def test_change_handler_truncates_at_edit():
 
     # Simulate an edit at position 14 (start of 'line 3').
     doc.set_point_start().move_point(14)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
 
     # With cols=24 and edit_pos=14, every entry with position + 24 > 14 is
     # dropped. bol1 is at pos 0: 0 + 24 = 24 > 14, so it's dropped too.
@@ -149,7 +147,7 @@ def test_change_handler_truncates_at_edit():
 def test_change_handler_keeps_far_entries():
     """Ladder entries more than `cols` chars before edit survive."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
-    lay = layout.Layout(doc, 4, 24, 8)  # cols=4
+    lay = layout.Layout(doc, 4, 24)  # cols=4
 
     doc.set_point_start()
     bols = []
@@ -165,7 +163,7 @@ def test_change_handler_keeps_far_entries():
     # bol2=pos 7 (7+4=11 <= 21 OK), bol3=pos 14 (14+4=18 <= 21 OK),
     # bol4=pos 21 (21+4=25 > 21, dropped).
     doc.set_point_start().move_point(21)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
 
     assert len(lay.bol_ladder) == 3
 
@@ -173,7 +171,7 @@ def test_change_handler_keeps_far_entries():
 def test_change_handler_drops_entry_at_cols_boundary():
     """An entry exactly `cols` chars before the edit must be truncated."""
     doc = document.Document('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')  # 32 a's
-    lay = layout.Layout(doc, 4, 24, 8)  # cols=4
+    lay = layout.Layout(doc, 4, 24)  # cols=4
 
     # Build ladder entries at positions 0, 4, 8, 12.
     bols = []
@@ -188,7 +186,7 @@ def test_change_handler_drops_entry_at_cols_boundary():
     # (4 + cols=4 = 8 == edit_pos, so it's exactly at boundary -> drop;
     # 0 + 4 = 4 < 8, so pos 0 survives). Entry at pos 4 is the boundary case.
     doc.set_point_start().move_point(8)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=frozenset())
+    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
 
     # Per spec ("more than cols chars before"): only pos 0 should survive.
     # Pos 4 is exactly cols before edit, must be dropped.

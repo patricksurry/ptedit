@@ -43,7 +43,8 @@ def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatena
     return wrapped
 
 
-Watcher = Callable[[Location, Location, 'frozenset[int] | None'], None]
+from .piece import Piece
+Watcher = Callable[[Location, Location, 'tuple[Piece, Piece] | None'], None]
 
 
 class Document:
@@ -65,20 +66,16 @@ class Document:
     def watch(self, watcher: Watcher):
         self._watchers.append(watcher)
 
-    def notify_watchers(self):
+    def notify_watchers(self) -> None:
         self.dirty = True
         start, end = (self._edit.get_change_start(), self._edit.get_change_end())
-        # Collect the object ids of pieces unlinked by this edit (for ladder invalidation).
-        # We use id() because Piece dataclasses are mutable and therefore not hashable.
-        unlinked_ids: set[int] = set()
-        if not self._edit.exclude_empty:
-            p = self._edit.exclude_first
-            while p is not None:
-                unlinked_ids.add(id(p))
-                if p is self._edit.exclude_last:
-                    break
-                p = p.next
-        unlinked = frozenset(unlinked_ids)
+        # Pass the chain bounds of unlinked pieces so watchers can walk the chain
+        # when needed (chain is preserved via prev/next even after unlinking).
+        # For pure insertions (exclude_empty), there are no unlinked pieces.
+        if self._edit.exclude_empty:
+            unlinked: tuple[Piece, Piece] | None = None
+        else:
+            unlinked = (self._edit.exclude_first, self._edit.exclude_last)
         for watcher in self._watchers:
             watcher(start, end, unlinked)
 

@@ -104,11 +104,11 @@ def test_golden_sticky_top():
     for _ in range(5):
         dpy.layout.move_forward_page()
     dpy.paint()
-    first_top = dpy.top_pos          # record anchor after initial paint
+    first_top = dpy.top_loc          # record anchor after initial paint
     for _ in range(5):
         dpy.layout.move_forward_line()
         dpy.paint()
-        assert dpy.top_pos == first_top, (
-            f"sticky top violated: top moved from {first_top} to {dpy.top_pos}"
+        assert dpy.top_loc == first_top, (
+            f"sticky top violated: top moved from {first_top} to {dpy.top_loc}"
         )
     assert_golden('sticky_top', scr.encode())

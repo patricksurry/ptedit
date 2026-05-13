@@ -6,7 +6,9 @@ from .controller import Controller
 from .screen import Screen, CursesScreen
 
 
-def main():
+def main() -> None:
+    # Returns None in all cases. When -P is given, the fps string is printed
+    # directly before returning; the interactive path runs until the user quits.
     parser = argparse.ArgumentParser(
         prog='ptedit',
         description='Prototype of minimal piece-table-based ascii editor',
@@ -21,19 +23,15 @@ def main():
         # so a mock Screen (no TTY required) gives comparable numbers without curses I/O noise.
         scr = Screen(height=24, width=80)
         ctrl = Controller(args.filename, scr)
-        result = ctrl.perftest(args.perftest)
-        print(result)
+        print(ctrl.perftest(args.perftest))
     else:
-        result = wrapper(main_loop, args)
-        if result:
-            print(result)
+        wrapper(main_loop, args)
 
 
-def main_loop(stdscr: curses.window, args: argparse.Namespace):
+def main_loop(stdscr: curses.window, args: argparse.Namespace) -> None:
     scr = CursesScreen(stdscr)
     ctrl = Controller(args.filename, scr, getch=stdscr.getch)
     ctrl.interactive()
-    return None
 
 if __name__ == "__main__":
     main()

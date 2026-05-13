@@ -1,84 +1,62 @@
+from __future__ import annotations
 import logging
+from collections import deque
+from typing import TYPE_CHECKING
 
 from .location import Location
 from .document import Document
+
+if TYPE_CHECKING:
+    from .piece import Piece
 
 
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
 
 
-class Ladder:
-    """
-    Sequence of BoL Locations covering the visible region and its
-    immediate neighborhood, per docs/rendering.md.
+class Ladder(deque):
+    """BoL marks for the visible region and its neighborhood, per docs/rendering.md.
 
-    The doc describes a 64-slot ring buffer with three indices
-    (first/top/last) — that's the contract for the 6502/Forth port,
-    where the byte budget matters. This Python reference uses a plain
-    list for clarity:
-
-        first == 0           (always; we trim from the front)
-        last  == len(slots)  (always)
-        top                  is a simple integer index in [first, last)
-
-    The algorithm in the doc is unchanged; only the data structure
-    differs. A Forth port should re-derive the wrap-aware index math
-    from the spec.
+    The doc specifies a 64-slot ring buffer with first/top/last indices —
+    that's the Forth port's contract. In Python we use a deque with a maxlen
+    cap, which gives O(1) append-and-evict-oldest semantics; `top` is a plain
+    int index into the live entries. A Forth port should re-derive the
+    wrap-aware indexing from the spec.
     """
     MAX = 64
 
-    def __init__(self):
-        self.slots: list[Location] = []
+    def __init__(self) -> None:
+        super().__init__(maxlen=self.MAX)
         self.top: int = 0
 
-    @property
-    def first(self) -> int:
-        return 0
-
-    @property
-    def last(self) -> int:
-        return len(self.slots)
-
-    def __bool__(self) -> bool:
-        return bool(self.slots)
-
-    def __len__(self) -> int:
-        return len(self.slots)
-
-    def __iter__(self):
-        return iter(self.slots)
-
-    def __getitem__(self, i: int) -> Location:
-        return self.slots[i]
-
-    def append(self, loc: Location):
-        self.slots.append(loc)
-        if len(self.slots) > self.MAX:
-            self.slots.pop(0)
+    def append(self, loc: Location) -> None:  # type: ignore[override]
+        if len(self) == self.MAX:
+            # Eviction will drop oldest; keep top valid relative to surviving entries.
             self.top = max(0, self.top - 1)
+        super().append(loc)
 
-    def truncate_to(self, count: int):
+    def truncate_to(self, count: int) -> None:
         """Keep the first `count` entries; discard the rest."""
-        assert 0 <= count <= len(self.slots)
-        del self.slots[count:]
+        assert 0 <= count <= len(self)
+        while len(self) > count:
+            self.pop()
         if self.top >= count:
             self.top = max(0, count - 1)
 
-    def reset(self, anchor: Location):
+    def reset(self, anchor: Location) -> None:
         """Discard everything; seed with a single anchor at top."""
-        self.slots = [anchor]
+        self.clear()
+        super().append(anchor)
         self.top = 0
 
 
 class Layout:
-    def __init__(self, doc: Document, cols: int, rows: int, rungs: int, tab: int=4):
+    def __init__(self, doc: Document, cols: int, rows: int, tab: int=4):
         self.doc = doc
 
         assert (cols // tab) * tab == cols, "tab should divide cols"
 
         self.cols = cols
         self.rows = rows
-        self.rungs = rungs
         self.tab = tab
 
         self.preferred_col = 0          # last column that wasn't
@@ -124,16 +102,31 @@ class Layout:
             self.bol_to_prev_bol()
         self.pin_preferred_col = True
 
-    def change_handler(self, start: Location, end: Location, unlinked: frozenset | None = None):
+    def change_handler(
+            self,
+            start: Location,
+            end: Location,
+            unlinked: tuple['Piece', 'Piece'] | None = None,
+    ) -> None:
         """Truncate the ladder at the first invalid entry per docs/rendering.md."""
         if not self.bol_ladder:
             return
         edit_pos = start.position()
+        # Build a small id-set for fast membership; chain length is typically 1-3.
+        unlinked_ids: set[int] = set()
+        if unlinked is not None:
+            first, last = unlinked
+            p: Piece | None = first
+            while p is not None:
+                unlinked_ids.add(id(p))
+                if p is last:
+                    break
+                p = p.next
         keep = 0
         for entry in self.bol_ladder:
             piece, _offset = entry.tuple()
             # Validity rule 1: piece id not in unlinked set (ids of removed pieces).
-            if unlinked is not None and id(piece) in unlinked:
+            if id(piece) in unlinked_ids:
                 break
             # Validity rule 2: entry more than `cols` chars before edit.
             if entry.position() + self.cols >= edit_pos:
@@ -167,9 +160,9 @@ class Layout:
         while self.doc.get_point().is_strictly_before(cursor):
             self.format_line()
             self.bol_ladder.append(self.doc.get_point())
-        # Top is the screen-anchor; for re-anchor, set it = first (== 0).
+        # Top is the screen-anchor; for re-anchor, set it = 0 (the spec's "first").
         # reset() already did this, kept for clarity vs the spec's first/top/last.
-        self.bol_ladder.top = self.bol_ladder.first
+        self.bol_ladder.top = 0
         self.doc.set_point(save_pt)
 
     def _extend_to(self, cursor: Location):
@@ -183,23 +176,25 @@ class Layout:
             added += 1
         self.doc.set_point(save_pt)
 
-    def ensure_bracketed(self, cursor: Location | None = None):
+    def ensure_bracketed(self, cursor: Location | None = None) -> int:
         """Phase 1: ensure the ladder brackets `cursor` (defaults to point).
         Extends the ladder forward when the cursor is close past the last entry,
-        re-anchors otherwise (cursor before the ladder, or far past the end)."""
+        re-anchors otherwise (cursor before the ladder, or far past the end).
+        Returns the cursor's line index in the (possibly extended) ladder."""
         if cursor is None:
             cursor = self.doc.get_point()
         lad = self.bol_ladder
         if not lad or cursor.is_strictly_before(lad[0]):
             self.reanchor(cursor)
         elif cursor.is_strictly_before(lad[-1]):
-            return  # already bracketed
+            pass  # already bracketed
         else:
             gap = cursor.distance_after(lad[-1])
             if gap is None or gap > self.rows * self.cols:
                 self.reanchor(cursor)
             else:
                 self._extend_to(cursor)
+        return self.line_index(cursor)
 
     def line_index(self, cursor: Location) -> int:
         """Index of the ladder entry whose line contains `cursor`."""
@@ -209,7 +204,14 @@ class Layout:
                 return i
         return len(lad) - 1
 
-    def clamp_to_bol(self):
+    def line_index_of_loc(self, loc: Location) -> int | None:
+        """Return the index of the ladder entry equal to `loc`, or None if not found."""
+        for i, entry in enumerate(self.bol_ladder):
+            if entry == loc:
+                return i
+        return None
+
+    def clamp_to_bol(self) -> None:
         """
         Move the point back to prior bol.
         Unlike bol_to_prev_bol this is a no-op if we're already at BOL
@@ -217,19 +219,17 @@ class Layout:
         if self.doc.at_start():
             return
         cursor = self.doc.get_point()
-        self.ensure_bracketed(cursor)
-        i = self.line_index(cursor)
+        i = self.ensure_bracketed(cursor)
         self.doc.set_point(self.bol_ladder[i])
 
-    def bol_to_next_bol(self):
+    def bol_to_next_bol(self) -> None:
         """Move from a BoL to the next BoL. Precondition: point is on a BoL.
 
         Uses the ladder when the next BoL is cached; otherwise formats one
         line forward and appends it.
         """
         bol = self.doc.get_point()
-        self.ensure_bracketed(bol)
-        i = self.line_index(bol)
+        i = self.ensure_bracketed(bol)
         if i + 1 < len(self.bol_ladder):
             self.doc.set_point(self.bol_ladder[i + 1])
             return
@@ -238,7 +238,7 @@ class Layout:
         if not self.doc.at_end():
             self.bol_ladder.append(self.doc.get_point())
 
-    def bol_to_prev_bol(self):
+    def bol_to_prev_bol(self) -> None:
         """Move from a BoL to the previous BoL.
 
         No-op at document start. Uses the ladder when the previous BoL is
@@ -247,8 +247,7 @@ class Layout:
         if self.doc.at_start():
             return
         bol = self.doc.get_point()
-        self.ensure_bracketed(bol)
-        i = self.line_index(bol)
+        i = self.ensure_bracketed(bol)
         if i > 0:
             self.doc.set_point(self.bol_ladder[i - 1])
             return
