@@ -86,9 +86,9 @@ class Layout:
 
         self.bol_ladder = Ladder()
         self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
-        self.last_truncate_top: int | None = None   # bol_ladder.top at the time of truncation
+        self.last_truncate_invalidated_top: bool = False  # True if truncation reached/passed top row
 
-    # ----- line moves (absorbed from Display) -----
+    # ----- line moves: layout-level operations on the ladder/cursor -----
 
     def move_start_line(self):
         self.clamp_to_bol()
@@ -145,9 +145,9 @@ class Layout:
         # Record the truncation count only when entries were actually dropped.
         if keep < original_len:
             self.last_truncate_keep = keep
-            self.last_truncate_top = old_top
+            self.last_truncate_invalidated_top = (old_top >= keep)
 
-    def _reanchor(self, cursor: Location):
+    def reanchor(self, cursor: Location):
         """Rebuild the ladder fresh: backscan from cursor to nearest newline
         (or doc start), seed the ladder with that anchor, and forward-format
         until cursor is bracketed.
@@ -172,23 +172,6 @@ class Layout:
         self.bol_ladder.top = self.bol_ladder.first
         self.doc.set_point(save_pt)
 
-    def _locate_cursor(self, cursor: Location) -> str:
-        """Phase 1 step 2 from docs/rendering.md.
-        Returns one of: 'bracketed', 'extend', 'reanchor'.
-        """
-        lad = self.bol_ladder
-        if not lad:
-            return 'reanchor'
-        if cursor.is_strictly_before(lad[0]):
-            return 'reanchor'
-        if cursor.is_strictly_before(lad[-1]):
-            return 'bracketed'
-        # cursor is at or past the last entry
-        gap = cursor.distance_after(lad[-1])
-        if gap is None or gap > self.rows * self.cols:
-            return 'reanchor'
-        return 'extend'
-
     def _extend_to(self, cursor: Location):
         """Format forward from the last cached BoL until cursor is bracketed."""
         save_pt = self.doc.get_point()
@@ -200,19 +183,25 @@ class Layout:
             added += 1
         self.doc.set_point(save_pt)
 
-    def _ensure_bracketed(self, cursor: Location | None = None):
-        """Phase 1: ensure the ladder brackets `cursor` (defaults to point)."""
+    def ensure_bracketed(self, cursor: Location | None = None):
+        """Phase 1: ensure the ladder brackets `cursor` (defaults to point).
+        Extends the ladder forward when the cursor is close past the last entry,
+        re-anchors otherwise (cursor before the ladder, or far past the end)."""
         if cursor is None:
             cursor = self.doc.get_point()
-        match self._locate_cursor(cursor):
-            case 'bracketed':
-                return
-            case 'extend':
+        lad = self.bol_ladder
+        if not lad or cursor.is_strictly_before(lad[0]):
+            self.reanchor(cursor)
+        elif cursor.is_strictly_before(lad[-1]):
+            return  # already bracketed
+        else:
+            gap = cursor.distance_after(lad[-1])
+            if gap is None or gap > self.rows * self.cols:
+                self.reanchor(cursor)
+            else:
                 self._extend_to(cursor)
-            case 'reanchor':
-                self._reanchor(cursor)
 
-    def _find_line_index(self, cursor: Location) -> int:
+    def line_index(self, cursor: Location) -> int:
         """Index of the ladder entry whose line contains `cursor`."""
         lad = self.bol_ladder
         for i in range(len(lad) - 1):
@@ -228,8 +217,8 @@ class Layout:
         if self.doc.at_start():
             return
         cursor = self.doc.get_point()
-        self._ensure_bracketed(cursor)
-        i = self._find_line_index(cursor)
+        self.ensure_bracketed(cursor)
+        i = self.line_index(cursor)
         self.doc.set_point(self.bol_ladder[i])
 
     def bol_to_next_bol(self):
@@ -239,8 +228,8 @@ class Layout:
         line forward and appends it.
         """
         bol = self.doc.get_point()
-        self._ensure_bracketed(bol)
-        i = self._find_line_index(bol)
+        self.ensure_bracketed(bol)
+        i = self.line_index(bol)
         if i + 1 < len(self.bol_ladder):
             self.doc.set_point(self.bol_ladder[i + 1])
             return
@@ -258,17 +247,17 @@ class Layout:
         if self.doc.at_start():
             return
         bol = self.doc.get_point()
-        self._ensure_bracketed(bol)
-        i = self._find_line_index(bol)
+        self.ensure_bracketed(bol)
+        i = self.line_index(bol)
         if i > 0:
             self.doc.set_point(self.bol_ladder[i - 1])
             return
         # bol is the oldest entry — re-anchor on the line before it, then take
         # the BoL just before bol (ladder[-2]). If that re-anchor produced only
         # a single entry, it's bol-1 itself (an empty line just above bol) and
-        # _reanchor already left the point there — nothing more to do.
+        # reanchor already left the point there — nothing more to do.
         self.doc.move_point(-1)
-        self._reanchor(self.doc.get_point())
+        self.reanchor(self.doc.get_point())
         if len(self.bol_ladder) >= 2:
             self.doc.set_point(self.bol_ladder[-2])
 

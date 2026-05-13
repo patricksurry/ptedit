@@ -31,7 +31,6 @@ class Display:
 
         # Phase 2 redraw-strategy state
         self.prev_cursor: tuple[int, int] | None = None  # cursor cell from last frame
-        self.row_positions: list[int] = [0] * self.rows  # doc position at start of each row
 
         self.doc.watch(self.change_handler)
 
@@ -51,15 +50,16 @@ class Display:
             self.scr.alert()
             logging.warning(msg)
 
-    def find_top(self):
+    def find_top(self) -> bool:
         """Position the screen with a sticky top: keep last frame's top unless
         the cursor moved out of the visible window or into the guard zone,
         per docs/rendering.md. Sets bol_ladder.top and moves point there.
+        Returns True if we recentered, False if we took the sticky path.
         """
         cursor = self.doc.get_point()
-        self.layout._ensure_bracketed(cursor)        # Phase 1: cursor is now in the ladder
+        self.layout.ensure_bracketed(cursor)        # Phase 1: cursor is now in the ladder
         lad = self.layout.bol_ladder
-        cur_idx = self.layout._find_line_index(cursor)
+        cur_idx = self.layout.line_index(cursor)
 
         # Find last frame's top in the (possibly rebuilt) ladder.
         top_idx = None
@@ -79,6 +79,7 @@ class Display:
                 if top_idx < 0:
                     top_idx = 0
             # else: no scroll, keep top_idx
+            recentered = False
         else:
             # cursor off-screen / no prior top / ladder rebuilt → recenter
             self.layout.clamp_to_bol()
@@ -89,18 +90,20 @@ class Display:
             recentered_top = self.doc.get_point()
             # After clamp_to_bol + bol_to_prev_bol the point is normally a
             # ladder entry already (each step follows the ladder or re-anchors
-            # around the new position).  Fall back to _reanchor only in the
-            # degenerate case (single-entry ladder after _reanchor inside
+            # around the new position).  Fall back to reanchor only in the
+            # degenerate case (single-entry ladder after reanchor inside
             # bol_to_prev_bol left the point off-ladder).
             lad = self.layout.bol_ladder
             if not any(e.position() == recentered_top.position() for e in lad):
-                self.layout._reanchor(recentered_top)
+                self.layout.reanchor(recentered_top)
                 lad = self.layout.bol_ladder
-            top_idx = self.layout._find_line_index(recentered_top)
+            top_idx = self.layout.line_index(recentered_top)
+            recentered = True
 
         lad.top = top_idx
         self.top_pos = lad[top_idx].position()
         self.doc.set_point(lad[top_idx])
+        return recentered
 
     def _render_rows(
             self,
@@ -110,6 +113,7 @@ class Display:
             at_end: bool,
             top_idx: int,
             original_pt: Location,
+            emit: bool = True,
     ) -> tuple[tuple[int, int] | None, Location]:
         """Render ladder rows [start_row, end_row) to the screen.
 
@@ -118,12 +122,13 @@ class Display:
         cursor falls in [start_row, end_row), else None. adjusted_pt is original_pt
         possibly adjusted by the deferred pin_preferred_col column fixup.
 
-        Populates self.row_positions[start_row:end_row].
+        When emit=False, skips all scr.move/put calls — cursor and adjusted_pt
+        are still computed (used by the no-scroll/no-selection fast path).
         Mutates self.layout.pin_preferred_col / preferred_col like the old paint did.
         """
         lad = self.layout.bol_ladder
 
-        if start_row > 0:
+        if emit and start_row > 0:
             # Partial render (local-edit tail): position the cursor at the
             # first row we re-render; rows above are left as the last frame.
             self.scr.move(start_row, 0)
@@ -155,15 +160,10 @@ class Display:
 
         row = start_row
         while row < end_row:
-            # Record doc position at this row BEFORE format_line advances the point.
-            self.row_positions[row] = self.doc.get_point().position()
-
             line, col_map = self.layout.format_line()
             delta = len(col_map)
             toggle_mark = -1
             toggle_pt = -1
-
-            logging.info(f"delta {delta} pt_off {pt_off} end {self.doc.at_end()}")
 
             if 0 <= pt_off < delta:
                 # Deferred move to preferred column?
@@ -185,17 +185,18 @@ class Display:
             pt_off -= delta
             mark_off -= delta
 
-            for col, ch in enumerate(line):
-                if toggle_pt == col:
-                    highlight = not highlight
-                if toggle_mark == col:
-                    highlight = not highlight
-                match ch:
-                    case 1: ch = ord('^')
-                    case 2: ch = ord('\\')
-                    case _ if ch < 32: ch = ord(' ')
-                    case _: pass
-                self.scr.put(ch, highlight)
+            if emit:
+                for col, ch in enumerate(line):
+                    if toggle_pt == col:
+                        highlight = not highlight
+                    if toggle_mark == col:
+                        highlight = not highlight
+                    match ch:
+                        case 1: ch = ord('^')
+                        case 2: ch = ord('\\')
+                        case _ if ch < 32: ch = ord(' ')
+                        case _: pass
+                    self.scr.put(ch, highlight)
 
             # Cache the next row's BoL for future frames.
             if not self.doc.at_end() and top_idx + row + 1 >= len(lad):
@@ -207,73 +208,28 @@ class Display:
 
     def _classify_paint_case(
             self,
-            prev_top_pos: int | None,
+            recentered: bool,
             edit_keep: int | None,
-            old_top_idx: int | None,
+            top_invalidated: bool,
     ) -> str:
         """Map the four cases from docs/rendering.md Phase 2 table.
 
-        prev_top_pos: self.top_pos from before find_top this frame (or None on first paint).
-        edit_keep:    self.layout.last_truncate_keep consumed this frame (entries that
-                      survived the last edit truncation), or None if no truncation.
-        old_top_idx:  the ladder's top index AT THE MOMENT of edit truncation (before
-                      truncate_to ran). None if there was no truncation this frame.
-                      Used to detect truncations that reached or passed the top row.
+        recentered:      True if find_top recentered (top moved), False if sticky.
+        edit_keep:       self.layout.last_truncate_keep consumed this frame (entries that
+                         survived the last edit truncation), or None if no truncation.
+        top_invalidated: True if the edit truncation reached or passed the old top row.
         Returns one of: 'full', 'local_edit', 'no_scroll'. (The doc's "scroll"
         case folds into 'full' here — both re-render the whole window in Python;
         only a real terminal block-copy would distinguish them.)
         """
-        if prev_top_pos is None or prev_top_pos != self.top_pos:
-            # Top moved → recenter / scroll / first paint.
+        if recentered:
             return 'full'
         # Top unchanged.
         if edit_keep is not None:
-            # If the truncation reached or passed the old top, the whole screen
-            # is invalid (K would be <= 0). Treat as full even though top_pos
-            # happened to be stable — find_top may have reconstructed it from
-            # scratch via reanchor.
-            if old_top_idx is None or edit_keep <= old_top_idx:
+            if top_invalidated:
                 return 'full'
             return 'local_edit'
         return 'no_scroll'
-
-    def _locate_cursor_cell(
-            self,
-            original_pt: Location,
-            top_idx: int,
-            at_end: bool,
-    ) -> tuple[tuple[int, int], Location]:
-        """Compute the cursor's screen cell without emitting any put() calls.
-
-        Returns ((row, col), adjusted_pt). Handles the pin_preferred_col
-        deferred-column move, mirroring the same logic in _render_rows.
-        Falls back to prev_cursor if the cursor is not in [0, rows).
-        """
-        lad = self.layout.bol_ladder
-        idx = self.layout._find_line_index(original_pt)
-        row = idx - top_idx
-        if not (0 <= row < self.rows):
-            # Shouldn't happen — find_top keeps the cursor on screen — but recover.
-            adjusted_pt = original_pt
-            if self.layout.pin_preferred_col:
-                self.layout.pin_preferred_col = False
-            return (self.prev_cursor or (0, 0)), adjusted_pt
-
-        # Set point at this row's BoL, format the line to get col_map.
-        self.doc.set_point(lad[idx])
-        _line, col_map = self.layout.format_line()
-
-        pt_off = original_pt.position() - lad[idx].position()
-        adjusted_pt = original_pt
-
-        # Deferred move to preferred column (same logic as _render_rows).
-        if not at_end and self.layout.pin_preferred_col:
-            assert pt_off == 0, f"panic: pt_off={pt_off}"
-            pt_off = self.layout.offset_for_column(self.layout.preferred_col, col_map)
-            adjusted_pt = adjusted_pt.move(pt_off)
-
-        col = col_map[pt_off] if pt_off < len(col_map) else 0
-        return (row, col), adjusted_pt
 
     def paint(self, mark: Location|None=None) -> tuple[int, int]:
         """
@@ -285,20 +241,17 @@ class Display:
         at_end = self.doc.at_end()
 
         # Capture Phase 2 state before find_top changes things.
-        prev_top_pos = self.top_pos
         edit_keep = self.layout.last_truncate_keep
         self.layout.last_truncate_keep = None
-        # last_truncate_top is the ladder.top at the moment the edit truncated the ladder —
-        # i.e., before truncation ran. Used to detect truncations that reached/passed the top.
-        old_top_idx = self.layout.last_truncate_top
-        self.layout.last_truncate_top = None
+        top_invalidated = self.layout.last_truncate_invalidated_top
+        self.layout.last_truncate_invalidated_top = False
 
-        self.find_top()         # move point to show at top-left of screen
+        recentered = self.find_top()    # move point to show at top-left of screen
 
         lad = self.layout.bol_ladder
         top_idx = lad.top
 
-        case = self._classify_paint_case(prev_top_pos, edit_keep, old_top_idx)
+        case = self._classify_paint_case(recentered, edit_keep, top_invalidated)
 
         if case == 'full':
             # Top changed (recenter / scroll / first paint): full redraw.
@@ -332,7 +285,19 @@ class Display:
             else:
                 # Nothing on screen changed. Emit ZERO put calls.
                 # Still compute the cursor cell so the terminal cursor can be placed.
-                cursor, adjusted_pt = self._locate_cursor_cell(original_pt, top_idx, at_end)
+                cursor_row = self.layout.line_index(original_pt) - top_idx
+                if 0 <= cursor_row < self.rows:
+                    cursor, adjusted_pt = self._render_rows(
+                        cursor_row, cursor_row + 1, mark, at_end, top_idx, original_pt, emit=False,
+                    )
+                    if cursor is None:
+                        cursor = self.prev_cursor or (cursor_row, 0)
+                else:
+                    # Shouldn't happen — find_top keeps cursor on screen — but recover.
+                    cursor = self.prev_cursor or (0, 0)
+                    adjusted_pt = original_pt
+                    if self.layout.pin_preferred_col:
+                        self.layout.pin_preferred_col = False
 
         self.doc.set_point(adjusted_pt)
 
