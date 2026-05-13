@@ -134,6 +134,99 @@ def test_no_scroll_emits_nothing():
     )
 
 
+def test_guard_zone_scroll_redraws():
+    """REGRESSION: cursor entering the guard zone must scroll AND redraw.
+
+    There was a bug where `find_top` returned `recentered=False` whenever it
+    took the sticky branch — but the sticky branch can change `top_idx` via
+    the guard-zone scroll. `paint` then classified `no_scroll` and emitted
+    zero puts, leaving the screen stale. This test pushes the cursor into
+    the bottom guard zone and asserts that (a) `top_loc` moved and (b) cells
+    were re-emitted (the buggy code emitted zero puts).
+    """
+    doc = document.Document(ALICE_FLOW)
+    scr = _RecordingScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    doc.set_point_start().move_point(4000)
+    dpy.paint()                                # initial full redraw
+    initial_top = dpy.top_loc
+    initial_events = len(scr.events)
+
+    # Comfort zone is delta ∈ [guard_rows, rows - guard_rows - 1].
+    # After the initial paint cursor is at delta == preferred_row;
+    # push it past the bottom of the comfort zone.
+    extra = (dpy.rows - dpy.guard_rows) - dpy.preferred_row + 1
+    for _ in range(extra):
+        dpy.layout.move_forward_line()
+    dpy.paint()
+
+    assert dpy.top_loc != initial_top, (
+        "top should have scrolled when cursor entered the bottom guard zone"
+    )
+    assert len(scr.events) - initial_events > 0, (
+        "guard-zone scroll must re-emit cells (regression for the "
+        "'top changed but emitted nothing' bug)"
+    )
+
+
+def test_selection_renders_highlighted_region():
+    """A paint with mark != point must produce highlighted cells, and a
+    subsequent no-scroll paint with the selection still active must
+    re-render (fall back to full) rather than the zero-put fast path."""
+    doc = document.Document(ALICE_FLOW)
+    scr = _RecordingScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    doc.set_point_start().move_point(4000)
+    mark = doc.get_point()                     # mark at 4000
+    doc.move_point(40)                         # point at 4040 — selection spans ~half a row
+    dpy.paint(mark=mark)
+
+    highlighted = sum(1 for _ch, hi in scr.events if hi)
+    assert highlighted > 0, "selection should produce highlighted cells"
+
+    # Move cursor one line down: stays in the comfort zone → no scroll,
+    # but mark != point still → no_scroll-with-selection branch should
+    # re-render the window (not take the zero-put fast path).
+    n_before = len(scr.events)
+    dpy.layout.move_forward_line()
+    dpy.paint(mark=mark)
+    assert len(scr.events) - n_before > 0, (
+        "no_scroll paint with an active selection must re-render the window"
+    )
+
+
+def test_bol_to_prev_bol_at_doc_start_is_noop():
+    """bol_to_prev_bol at doc start is a no-op (covers the at_start early return)."""
+    doc = document.Document(ALICE_FLOW)
+    dpy = display.Display(doc, display.Screen(24, 80))
+    doc.set_point_start()
+    pos_before = doc.get_point().position()
+    dpy.layout.bol_to_prev_bol()
+    assert doc.get_point().position() == pos_before
+
+
+def test_change_handler_walks_multi_piece_unlinked_chain():
+    """Coverage: an edit that unlinks more than one piece exercises the
+    chain-walk in `Layout.change_handler` (`p = p.next`)."""
+    doc = document.Document('one\ntwo\nthree\nfour\nfive\n')
+    dpy = display.Display(doc, display.Screen(24, 80))
+    dpy.paint()
+    # Insert in two different middle pieces so the chain has multiple links.
+    doc.set_point_start().move_point(5)
+    doc.insert('A')
+    dpy.paint()
+    doc.set_point_start().move_point(12)
+    doc.insert('B')
+    dpy.paint()
+    # Now do a delete that spans both inserts → unlinks multiple pieces.
+    doc.set_point_start().move_point(4)
+    doc.delete(10)
+    dpy.paint()
+    # Nothing to assert beyond "didn't blow up" — this exists to exercise the
+    # chain-walk branch. The fact that the paint succeeded means the ladder
+    # was correctly truncated.
+
+
 def test_local_edit_renders_tail_only():
     """An edit in the middle of the screen re-renders only the tail rows.
 

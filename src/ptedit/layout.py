@@ -176,13 +176,13 @@ class Layout:
             added += 1
         self.doc.set_point(save_pt)
 
-    def ensure_bracketed(self, cursor: Location | None = None) -> int:
-        """Phase 1: ensure the ladder brackets `cursor` (defaults to point).
-        Extends the ladder forward when the cursor is close past the last entry,
-        re-anchors otherwise (cursor before the ladder, or far past the end).
-        Returns the cursor's line index in the (possibly extended) ladder."""
-        if cursor is None:
-            cursor = self.doc.get_point()
+    def ensure_bracketed(self, cursor: Location) -> int:
+        """Phase 1: ensure the ladder brackets `cursor`.
+
+        Extends the ladder forward when the cursor is close past the last
+        entry, re-anchors otherwise (cursor before the ladder, or far past
+        the end). Returns the cursor's line index in the (possibly extended)
+        ladder."""
         lad = self.bol_ladder
         if not lad or cursor.is_strictly_before(lad[0]):
             self.reanchor(cursor)
