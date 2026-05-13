@@ -161,28 +161,57 @@ away. With ~3000 paints/sec × 23 rows ≈ 70 000 spurious format calls
 per second of the perftest, removing it was a real drag-removal, not
 just hygiene.
 
+### Stage 2 + PR-review refactor
+
+Followed up with PR-review feedback (commit `89b4d26`): introduced a
+`Cell` NamedTuple in place of `tuple[int, int]`; replaced `top_pos: int`
+with `top_loc: Location`; rewrote the guard-zone scroll math as a clamp;
+**fixed the sticky-top scroll bug** where `find_top` returned "did I take
+the recenter branch" instead of "did `top` change", causing the
+no-scroll path to fire (zero puts) when a guard-zone scroll had moved
+`top`; inlined the four-case classifier; switched `Ladder` to a
+`collections.deque` subclass per the doc's spec; simplified the
+unlinked-pieces watcher signature from `frozenset[int]` to
+`tuple[Piece, Piece] | None`. Plus a typing pass (`78f7305`) and
+regression tests + coverage tooling (`4e21a39`).
+
+The `deque` switch costs perf at the line-nav hot path: Python's
+`deque[i]` is O(n) where `list[i]` is O(1), and `bol_to_prev_bol`
+indexes the ladder once per call.
+
+| scenario       | pre-refactor (`daee614`) | post-refactor (`4e21a39`) |
+|----------------|--------------------------|---------------------------|
+| insert         | 304                      | 252                       |
+| up_from_end    | 3358                     | 1428                      |
+| pgup_from_end  | 250                      | 257                       |
+| pgdn_from_top  | 335                      | 332                       |
+
+Page scrolls and `insert` are largely unchanged; `up_from_end` is where
+the deque indexing hurts. Trading semantic clarity (deque is the doc's
+ring-buffer analogue) for ~57% on the line-nav perftest. A list-backed
+`Ladder` with an explicit MAX cap would recover the speed.
+
 ### Summary vs pre-rewrite
 
 | scenario       | pre-rewrite | naive | final | final / pre-rewrite |
 |----------------|-------------|-------|-------|---------------------|
-| insert         | 150         | 101   | 304   | **2.0×**            |
-| up_from_end    | 525         | 122   | 3358  | **6.4×**            |
-| pgup_from_end  | 218         | 57    | 250   | 115%                |
-| pgdn_from_top  | 346         | 122   | 335   | 97%                 |
+| insert         | 150         | 101   | 252   | **1.7×**            |
+| up_from_end    | 525         | 122   | 1428  | **2.7×**            |
+| pgup_from_end  | 218         | 57    | 257   | 118%                |
+| pgdn_from_top  | 346         | 122   | 332   | 96%                 |
 
-Common interactive ops (line nav, typing) are dramatically faster.
-Page scrolls land within noise of pre-rewrite — they're full redraws
-in both implementations, and the ladder primes `format_line` similarly
-in each.
+Common interactive ops (line nav, typing) are faster. Page scrolls
+land within noise of pre-rewrite — they're full redraws in both
+implementations, and the ladder primes `format_line` similarly in each.
 
 File sizes:
 
-| file              | pre-rewrite | final | delta |
-|-------------------|-------------|-------|-------|
-| `src/ptedit/layout.py`  | 274   | 343   | +69   |
-| `src/ptedit/display.py` | 162   | 311   | +149  |
+| file                    | pre-rewrite | final | delta |
+|-------------------------|-------------|-------|-------|
+| `src/ptedit/layout.py`  | 274         | 342   | +68   |
+| `src/ptedit/display.py` | 162         | 278   | +116  |
 
-The growth is the doc's design surface: `Ladder` + Phase 1 (`reanchor`/
-`ensure_bracketed`/`_extend_to`/`line_index`) in Layout; sticky top
+The growth is the doc's design surface: `Ladder` + Phase 1 (`reanchor`,
+`ensure_bracketed`, `_extend_to`, `line_index`) in Layout; sticky top
 with guard-zone scrolling and the four Phase 2 redraw cases (full /
 scroll / local-edit tail / no-scroll skip) in Display.
