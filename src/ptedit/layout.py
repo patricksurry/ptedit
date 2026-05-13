@@ -50,7 +50,7 @@ class Ladder(deque):
 
 
 class Layout:
-    def __init__(self, doc: Document, cols: int, rows: int, tab: int=4):
+    def __init__(self, doc: Document, cols: int, rows: int, tab: int = 4) -> None:
         self.doc = doc
 
         assert (cols // tab) * tab == cols, "tab should divide cols"
@@ -59,8 +59,8 @@ class Layout:
         self.rows = rows
         self.tab = tab
 
-        self.preferred_col = 0          # last column that wasn't
-        self.pin_preferred_col = False  # True if cursor should track preferred col
+        self.preferred_col: int = 0         # last column that wasn't
+        self.pin_preferred_col: bool = False  # True if cursor should track preferred col
 
         self.bol_ladder = Ladder()
         self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
@@ -68,35 +68,35 @@ class Layout:
 
     # ----- line moves: layout-level operations on the ladder/cursor -----
 
-    def move_start_line(self):
+    def move_start_line(self) -> None:
         self.clamp_to_bol()
 
-    def move_end_line(self):
+    def move_end_line(self) -> None:
         self.clamp_to_bol()
         self.bol_to_next_bol()
         if not self.doc.at_end():
             self.doc.move_point(-1)
 
-    def move_forward_line(self):
+    def move_forward_line(self) -> None:
         self.clamp_to_bol()
         if not self.doc.at_end():
             self.bol_to_next_bol()
             # defer column setting until we render the line with the point
             self.pin_preferred_col = True
 
-    def move_backward_line(self):
+    def move_backward_line(self) -> None:
         self.clamp_to_bol()
         if not self.doc.at_start():
             self.bol_to_prev_bol()
             self.pin_preferred_col = True
 
-    def move_forward_page(self):
+    def move_forward_page(self) -> None:
         self.clamp_to_bol()
         for _ in range(self.rows):
             self.bol_to_next_bol()
         self.pin_preferred_col = True
 
-    def move_backward_page(self):
+    def move_backward_page(self) -> None:
         self.clamp_to_bol()
         for _ in range(self.rows):
             self.bol_to_prev_bol()
@@ -140,7 +140,7 @@ class Layout:
             self.last_truncate_keep = keep
             self.last_truncate_invalidated_top = (old_top >= keep)
 
-    def reanchor(self, cursor: Location):
+    def reanchor(self, cursor: Location) -> None:
         """Rebuild the ladder fresh: backscan from cursor to nearest newline
         (or doc start), seed the ladder with that anchor, and forward-format
         until cursor is bracketed.
@@ -165,7 +165,7 @@ class Layout:
         self.bol_ladder.top = 0
         self.doc.set_point(save_pt)
 
-    def _extend_to(self, cursor: Location):
+    def _extend_to(self, cursor: Location) -> None:
         """Format forward from the last cached BoL until cursor is bracketed."""
         save_pt = self.doc.get_point()
         self.doc.set_point(self.bol_ladder[-1])

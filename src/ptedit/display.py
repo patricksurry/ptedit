@@ -22,10 +22,10 @@ class Display:
             self,
             doc: Document,
             scr: Screen,
-            guard_rows: int=3,
-            preferred_row: int=0,
-            tab: int=4,
-        ):
+            guard_rows: int = 3,
+            preferred_row: int = 0,
+            tab: int = 4,
+    ) -> None:
         self.scr = scr
         self.doc = doc
         self.rows = self.scr.height - 1     # one for status
@@ -53,7 +53,7 @@ class Display:
         """Force the next paint to recenter the cursor."""
         self.top_loc = None
 
-    def show_message(self, msg: str, warn: bool=False):
+    def show_message(self, msg: str, warn: bool = False) -> None:
         self.message = msg
         if warn:
             self.scr.alert()

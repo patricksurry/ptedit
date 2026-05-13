@@ -8,6 +8,7 @@ from .location import Location
 from .edit import Edit
 
 
+
 whitespace = ' \t\n'
 
 
@@ -43,27 +44,26 @@ def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatena
     return wrapped
 
 
-from .piece import Piece
 Watcher = Callable[[Location, Location, 'tuple[Piece, Piece] | None'], None]
 
 
 class Document:
-    def __init__(self, s: str=''):
+    def __init__(self, s: str = '') -> None:
         self._watchers: list[Watcher] = []
 
         # Create sentinel pieces at the ends of the chain
         # These are the only Pieces that are empty
         self._start: Piece = PrimaryPiece(allow_empty=True)
         self._end: Piece = PrimaryPiece(allow_empty=True)
-        self.dirty = False
+        self.dirty: bool = False
         self._reset(s)
 
-    def _reset(self, s: str):
+    def _reset(self, s: str) -> None:
         Piece.link(self._start, self._end)
         self._edit = Edit.create(Location(self._end), insert=s)
         self.set_point_start()
 
-    def watch(self, watcher: Watcher):
+    def watch(self, watcher: Watcher) -> None:
         self._watchers.append(watcher)
 
     def notify_watchers(self) -> None:
@@ -80,7 +80,7 @@ class Document:
             watcher(start, end, unlinked)
 
     @mutator
-    def squash(self):
+    def squash(self) -> None:
         self._reset(self.get_data())
 
     def at_start(self) -> bool:
@@ -292,7 +292,7 @@ class Document:
             self.set_point(self._edit.redo())
         return self
 
-    def __str__(self):
+    def __str__(self) -> str:
         p = self._start.next
         s: str = ''
         while p is not None:
@@ -304,7 +304,7 @@ class Document:
             p = p.next
         return s
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         lines: list[str] = []
         p = self._start
         while True:

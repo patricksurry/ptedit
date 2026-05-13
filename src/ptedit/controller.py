@@ -10,7 +10,7 @@ import logging
 
 from .document import Document, Location
 from .editor import Editor
-from .display import Display
+from .display import Display, Cell
 from .screen import Screen
 
 if TYPE_CHECKING:
@@ -61,15 +61,15 @@ def actionlist(actionable: Actionable) -> list[Action]:
 
 
 class Controller:
-    def __init__(self, fname: str, scr: Screen, getch: Callable[[], int] | None = None):
+    def __init__(self, fname: str, scr: Screen, getch: Callable[[], int] | None = None) -> None:
         self.mode = KeyMode.NORMAL
 
         # create missing file
         if not os.path.exists(fname):
             open(fname, 'w').close()
 
-        self.fname = fname
-        self.change_count = 0
+        self.fname: str = fname
+        self.change_count: int = 0
 
         # use iso-8859-1 so that str <-> bytes is 1:1
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
@@ -153,7 +153,7 @@ class Controller:
             }
         ]
 
-    def status_message(self, cursor: tuple[int, int]) -> str:
+    def status_message(self, cursor: Cell) -> str:
         if self.dpy.message:
             status = self.dpy.message
             self.dpy.message = ''
@@ -178,7 +178,7 @@ class Controller:
 
         return " " + status
 
-    def interactive(self):
+    def interactive(self) -> None:
         while self.active:
             cursor = self.dpy.paint(self.ed.mark)
             self.dpy.scr.move(self.dpy.rows, 0)
@@ -195,15 +195,15 @@ class Controller:
             except KeyboardInterrupt:
                 self.quit()
 
-    def quit(self):
+    def quit(self) -> None:
         self.autosave(0)
         self.active = False
 
-    def save(self, suffix: str=''):
+    def save(self, suffix: str = '') -> None:
         open(self.fname + suffix, 'w', encoding='iso-8859-1').write(self.doc.get_data())
         self.doc.dirty = False
 
-    def autosave(self, interval: int=10):
+    def autosave(self, interval: int = 10) -> None:
         if interval:
             self.change_count = (self.change_count + 1)%interval
         else:
@@ -225,7 +225,7 @@ class Controller:
             return f"unknown scenario: {scenario}; choices: {list(runners)}"
         return runners[scenario](max_time)
 
-    def _run(self, max_time: float, step) -> str:
+    def _run(self, max_time: float, step: Callable[[], None]) -> str:
         frames = 0
         start = time()
         while time() - start < max_time:
@@ -237,7 +237,7 @@ class Controller:
 
     def _perf_insert_loop(self, max_time: float) -> str:
         self.ed.move_end()
-        def step():
+        def step() -> None:
             self.ed.insert(ord('a'))
             self.ed.move_backward_char()
             self.dpy.layout.move_backward_line()
@@ -245,7 +245,7 @@ class Controller:
 
     def _perf_up_from_end(self, max_time: float) -> str:
         self.ed.move_end()
-        def step():
+        def step() -> None:
             if self.doc.at_start():
                 self.ed.move_end()
             self.dpy.layout.move_backward_line()
@@ -253,7 +253,7 @@ class Controller:
 
     def _perf_pgup_from_end(self, max_time: float) -> str:
         self.ed.move_end()
-        def step():
+        def step() -> None:
             if self.doc.at_start():
                 self.ed.move_end()
             self.dpy.layout.move_backward_page()
@@ -261,13 +261,13 @@ class Controller:
 
     def _perf_pgdn_from_top(self, max_time: float) -> str:
         self.ed.move_start()
-        def step():
+        def step() -> None:
             if self.doc.at_end():
                 self.ed.move_start()
             self.dpy.layout.move_forward_page()
         return self._run(max_time, step)
 
-    def dispatch(self, key: int):
+    def dispatch(self, key: int) -> None:
         """Handle an ascii keypress"""
 
         actions: list[Action] = []
@@ -288,7 +288,7 @@ class Controller:
 
         self._act(actions)
 
-    def _act(self, actions: list[Action]):
+    def _act(self, actions: list[Action]) -> None:
         for action in actions:
             if callable(action):
                 action()
