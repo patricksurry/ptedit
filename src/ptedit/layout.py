@@ -1,6 +1,5 @@
 from __future__ import annotations
 import logging
-from collections import deque
 from typing import TYPE_CHECKING
 
 from .location import Location
@@ -13,32 +12,32 @@ if TYPE_CHECKING:
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
 
 
-class Ladder(deque):
+class Ladder(list[Location]):
     """BoL marks for the visible region and its neighborhood, per docs/rendering.md.
 
     The doc specifies a 64-slot ring buffer with first/top/last indices —
-    that's the Forth port's contract. In Python we use a deque with a maxlen
-    cap, which gives O(1) append-and-evict-oldest semantics; `top` is a plain
-    int index into the live entries. A Forth port should re-derive the
-    wrap-aware indexing from the spec.
+    that's the Forth port's contract. In Python we subclass `list` directly:
+    O(1) indexing (the hot path), with `MAX` enforced manually on `append`
+    so the oldest entry is dropped on overflow. `top` is a plain int index
+    into the live entries. A Forth port should re-derive the wrap-aware
+    indexing from the spec.
     """
     MAX = 64
 
     def __init__(self) -> None:
-        super().__init__(maxlen=self.MAX)
+        super().__init__()
         self.top: int = 0
 
-    def append(self, loc: Location) -> None:  # type: ignore[override]
+    def append(self, loc: Location) -> None:
         if len(self) == self.MAX:
-            # Eviction will drop oldest; keep top valid relative to surviving entries.
+            del self[0]
             self.top = max(0, self.top - 1)
         super().append(loc)
 
     def truncate_to(self, count: int) -> None:
         """Keep the first `count` entries; discard the rest."""
         assert 0 <= count <= len(self)
-        while len(self) > count:
-            self.pop()
+        del self[count:]
         if self.top >= count:
             self.top = max(0, count - 1)
 
