@@ -8,6 +8,7 @@ from .edit import Edit
 from .location import Location
 from .layout import Layout
 from .screen import Screen
+from .stats import stats
 
 
 class Cell(NamedTuple):
@@ -44,6 +45,12 @@ class Display:
 
     def change_handler(self, edit: Edit) -> None:
         self.layout.change_handler(edit)
+        # Keep top_loc in sync with any in-place ladder remaps: if top_loc's
+        # piece was the unlinked piece, remap it so find_top can still locate
+        # it in the updated ladder.  If it can't be remapped (deleted middle or
+        # multi-piece unlink), clear it to force a recenter next frame.
+        if self.top_loc is not None:
+            self.top_loc = edit.remap_location(self.top_loc)
 
     ### External interface begins
 
@@ -64,6 +71,8 @@ class Display:
         Returns True if top changed (this frame's screen anchor differs from
         last frame's), False if it stayed the same.
         """
+        stats.tick('find_top')
+        stats.sample('find_top.ladder_len', float(len(self.layout.bol_ladder)))
         old_top_loc = self.top_loc
         cursor = self.doc.get_point()
         cur_idx = self.layout.ensure_bracketed(cursor)   # Phase 1: cursor is now in the ladder
@@ -81,6 +90,7 @@ class Display:
             top_idx = max(0, cur_idx - delta)
         else:
             # Cursor off-screen / no prior top / ladder rebuilt → recenter.
+            stats.tick('find_top.recenter')
             self.layout.clamp_to_bol()
             for _ in range(self.preferred_row):
                 if self.doc.at_start():
@@ -222,6 +232,7 @@ class Display:
 
         if top_changed or (edit_keep is not None and top_invalidated):
             # Full redraw: top moved or edit truncation reached/passed top.
+            stats.tick('paint.full')
             self.scr.clear()
             cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
             if cursor is None:
@@ -232,6 +243,7 @@ class Display:
             # Rows [0, K) are byte-stable on screen; only [K, rows) need re-rendering.
             # Guaranteed 0 < K < rows here: if truncation reached top or above,
             # top_changed would be True → classified as full above.
+            stats.tick('paint.local_edit')
             K = edit_keep - top_idx
             cursor, adjusted_pt = self._render_rows(K, self.rows, mark, at_end, top_idx, original_pt)
             if cursor is None:
@@ -242,6 +254,7 @@ class Display:
             # Active selection on a stable window: highlight may have changed.
             # For this Python reference, fall back to full redraw. Cell-granular
             # highlight delta is a 6502 concern.
+            stats.tick('paint.no_scroll_with_selection')
             self.scr.clear()
             cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
             if cursor is None:
@@ -250,6 +263,7 @@ class Display:
         else:
             # No top change, no edit, no selection: rows are byte-stable.
             # Emit ZERO put calls; just compute the cursor cell.
+            stats.tick('paint.no_scroll')
             cursor_row = self.layout.line_index(original_pt) - top_idx
             if 0 <= cursor_row < self.rows:
                 cursor, adjusted_pt = self._render_rows(

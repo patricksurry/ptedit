@@ -4,6 +4,7 @@ import logging
 from .location import Location
 from .document import Document
 from .edit import Edit
+from .stats import stats
 
 
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
@@ -104,6 +105,7 @@ class Layout:
         before the edit start; truncate at the first failure."""
         if not self.bol_ladder:
             return
+        stats.sample('change_handler.ladder_len_before', float(len(self.bol_ladder)))
         edit_pos = edit.get_change_start().position()
         keep = 0
         for i, entry in enumerate(self.bol_ladder):
@@ -118,6 +120,7 @@ class Layout:
         original_len = len(self.bol_ladder)
         old_top = self.bol_ladder.top
         self.bol_ladder.truncate_to(keep)
+        stats.sample('change_handler.ladder_len_after', float(len(self.bol_ladder)))
         if keep < original_len:
             self.last_truncate_keep = keep
             self.last_truncate_invalidated_top = (old_top >= keep)
@@ -132,6 +135,7 @@ class Layout:
         move_point(-1) prelude is needed: calling from a position that is
         already a hard BoL will land back at the same BoL, which is correct.
         """
+        stats.tick('reanchor')
         save_pt = self.doc.get_point()
         self.doc.set_point(cursor)
         if not self.doc.at_start():
@@ -167,14 +171,17 @@ class Layout:
         ladder."""
         lad = self.bol_ladder
         if not lad or cursor.is_strictly_before(lad[0]):
+            stats.tick('ensure_bracketed.reanchor.before')
             self.reanchor(cursor)
         elif cursor.is_strictly_before(lad[-1]):
-            pass  # already bracketed
+            stats.tick('ensure_bracketed.bracketed')
         else:
             gap = cursor.distance_after(lad[-1])
             if gap is None or gap > self.rows * self.cols:
+                stats.tick('ensure_bracketed.reanchor.far')
                 self.reanchor(cursor)
             else:
+                stats.tick('ensure_bracketed.extend')
                 self._extend_to(cursor)
         return self.line_index(cursor)
 
@@ -237,6 +244,7 @@ class Layout:
         # the BoL just before bol (ladder[-2]). If that re-anchor produced only
         # a single entry, it's bol-1 itself (an empty line just above bol) and
         # reanchor already left the point there — nothing more to do.
+        stats.tick('bol_to_prev_bol.fallback')
         self.doc.move_point(-1)
         self.reanchor(self.doc.get_point())
         if len(self.bol_ladder) >= 2:
