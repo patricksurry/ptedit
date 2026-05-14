@@ -1,12 +1,10 @@
 from __future__ import annotations
 from enum import IntEnum
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 from .document import Document, MatchMode, whitespace
+from .edit import Edit
 from .location import Location
 from .layout import Layout
-
-if TYPE_CHECKING:
-    from .piece import Piece
 
 
 NotifyFn = Callable[[str, bool], None]
@@ -41,7 +39,7 @@ class Editor:
         # TODO cycle mode action
         self.match_mode: MatchMode = MatchMode.SMART_CASE
 
-    def change_handler(self, start: Location, end: Location, unlinked: tuple[Piece, Piece] | None = None) -> None:
+    def change_handler(self, edit: Edit) -> None:
         self.mark = None
 
     def squash(self) -> None:

@@ -115,32 +115,25 @@ def test_offset_for_column():
 
 
 def test_change_handler_truncates_at_edit():
-    """Ladder entries near or after the edit are dropped."""
+    """Ladder entries within cols of the edit are dropped (rule 2: cols-margin)."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
     lay = layout.Layout(doc, 24, 24, 8)
+    doc.watch(lay.change_handler)
 
-    # Manually populate the ladder by appending BoL marks at known positions.
-    # (Phase 1 will populate this organically in Task 2.3; for this unit test
-    # we seed it directly.)
-    doc.set_point_start()
-    bol1 = doc.get_point()
-    doc.move_point(7)  # past 'line 1\n'
-    bol2 = doc.get_point()
-    doc.move_point(7)  # past 'line 2\n'
-    bol3 = doc.get_point()
-    doc.move_point(7)
-    bol4 = doc.get_point()
-    for b in (bol1, bol2, bol3, bol4):
+    # Manually populate the ladder with BoL marks at positions 0, 7, 14, 21.
+    bols = []
+    for off in (0, 7, 14, 21):
+        doc.set_point_start().move_point(off)
+        bols.append(doc.get_point())
+    for b in bols:
         lay.bol_ladder.append(b)
     assert len(lay.bol_ladder) == 4
 
-    # Simulate an edit at position 14 (start of 'line 3').
+    # Insert at pos 14 (start of 'line 3'): pure insertion, exclude_empty=True,
+    # so remap returns loc unchanged. With cols=24 and edit_pos=14,
+    # pos 0: 0+24=24 >= 14 → dropped immediately. All 4 entries dropped.
     doc.set_point_start().move_point(14)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
-
-    # With cols=24 and edit_pos=14, every entry with position + 24 > 14 is
-    # dropped. bol1 is at pos 0: 0 + 24 = 24 > 14, so it's dropped too.
-    # All 4 entries are dropped.
+    doc.insert('x')
     assert len(lay.bol_ladder) == 0
 
 
@@ -148,23 +141,21 @@ def test_change_handler_keeps_far_entries():
     """Ladder entries more than `cols` chars before edit survive."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
     lay = layout.Layout(doc, 4, 24)  # cols=4
+    doc.watch(lay.change_handler)
 
-    doc.set_point_start()
     bols = []
-    for _ in range(4):
+    for off in (0, 7, 14, 21):
+        doc.set_point_start().move_point(off)
         bols.append(doc.get_point())
-        doc.move_point(7)
-
     for b in bols:
         lay.bol_ladder.append(b)
 
-    # Edit at position 21 (start of 'line 4'). With cols=4, entries with
-    # position + 4 <= 21 survive. bol1=pos 0 (0+4=4 <= 21 OK),
-    # bol2=pos 7 (7+4=11 <= 21 OK), bol3=pos 14 (14+4=18 <= 21 OK),
-    # bol4=pos 21 (21+4=25 > 21, dropped).
+    # Insert at pos 21 (start of 'line 4'). Pure insertion (exclude_empty=True),
+    # remap returns loc unchanged. With cols=4:
+    # pos 0: 0+4=4 < 21 (keep), pos 7: 7+4=11 < 21 (keep),
+    # pos 14: 14+4=18 < 21 (keep), pos 21: 21+4=25 >= 21 (drop).
     doc.set_point_start().move_point(21)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
-
+    doc.insert('x')
     assert len(lay.bol_ladder) == 3
 
 
@@ -172,23 +163,20 @@ def test_change_handler_drops_entry_at_cols_boundary():
     """An entry exactly `cols` chars before the edit must be truncated."""
     doc = document.Document('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')  # 32 a's
     lay = layout.Layout(doc, 4, 24)  # cols=4
+    doc.watch(lay.change_handler)
 
     # Build ladder entries at positions 0, 4, 8, 12.
     bols = []
-    doc.set_point_start()
     for i in range(4):
         doc.set_point_start().move_point(i * 4)
         bols.append(doc.get_point())
     for b in bols:
         lay.bol_ladder.append(b)
 
-    # Edit at position 8: entries at positions 0, 4 must survive
-    # (4 + cols=4 = 8 == edit_pos, so it's exactly at boundary -> drop;
-    # 0 + 4 = 4 < 8, so pos 0 survives). Entry at pos 4 is the boundary case.
+    # Insert at position 8. Pure insertion (exclude_empty=True), remap unchanged.
+    # pos 0: 0+4=4 < 8 (keep); pos 4: 4+4=8 >= 8 (drop).
+    # Per spec ("more than cols chars before"): only pos 0 survives.
     doc.set_point_start().move_point(8)
-    lay.change_handler(doc.get_point(), doc.get_point(), unlinked=None)
-
-    # Per spec ("more than cols chars before"): only pos 0 should survive.
-    # Pos 4 is exactly cols before edit, must be dropped.
+    doc.insert('x')
     assert len(lay.bol_ladder) == 1
     assert lay.bol_ladder[0].position() == 0

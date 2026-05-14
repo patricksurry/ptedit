@@ -44,7 +44,7 @@ def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatena
     return wrapped
 
 
-Watcher = Callable[[Location, Location, 'tuple[Piece, Piece] | None'], None]
+Watcher = Callable[['Edit'], None]
 
 
 class Document:
@@ -68,16 +68,8 @@ class Document:
 
     def notify_watchers(self) -> None:
         self.dirty = True
-        start, end = (self._edit.get_change_start(), self._edit.get_change_end())
-        # Pass the chain bounds of unlinked pieces so watchers can walk the chain
-        # when needed (chain is preserved via prev/next even after unlinking).
-        # For pure insertions (exclude_empty), there are no unlinked pieces.
-        if self._edit.exclude_empty:
-            unlinked: tuple[Piece, Piece] | None = None
-        else:
-            unlinked = (self._edit.exclude_first, self._edit.exclude_last)
         for watcher in self._watchers:
-            watcher(start, end, unlinked)
+            watcher(self._edit)
 
     @mutator
     def squash(self) -> None:

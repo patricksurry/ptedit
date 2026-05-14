@@ -1,12 +1,9 @@
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING
 
 from .location import Location
 from .document import Document
-
-if TYPE_CHECKING:
-    from .piece import Piece
+from .edit import Edit
 
 
 hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
@@ -101,40 +98,26 @@ class Layout:
             self.bol_to_prev_bol()
         self.pin_preferred_col = True
 
-    def change_handler(
-            self,
-            start: Location,
-            end: Location,
-            unlinked: tuple['Piece', 'Piece'] | None = None,
-    ) -> None:
-        """Truncate the ladder at the first invalid entry per docs/rendering.md."""
+    def change_handler(self, edit: Edit) -> None:
+        """Per docs/rendering.md validity: keep ladder entries that remap
+        cleanly into the post-edit chain AND sit more than `cols` chars
+        before the edit start; truncate at the first failure."""
         if not self.bol_ladder:
             return
-        edit_pos = start.position()
-        # Build a small id-set for fast membership; chain length is typically 1-3.
-        unlinked_ids: set[int] = set()
-        if unlinked is not None:
-            first, last = unlinked
-            p: Piece | None = first
-            while p is not None:
-                unlinked_ids.add(id(p))
-                if p is last:
-                    break
-                p = p.next
+        edit_pos = edit.get_change_start().position()
         keep = 0
-        for entry in self.bol_ladder:
-            piece, _offset = entry.tuple()
-            # Validity rule 1: piece id not in unlinked set (ids of removed pieces).
-            if id(piece) in unlinked_ids:
-                break
-            # Validity rule 2: entry more than `cols` chars before edit.
-            if entry.position() + self.cols >= edit_pos:
-                break
+        for i, entry in enumerate(self.bol_ladder):
+            new_loc = edit.remap_location(entry)
+            if new_loc is None:
+                break                                  # rule 1: piece can't be remapped
+            if new_loc.position() + self.cols >= edit_pos:
+                break                                  # rule 2: cols-margin guard
+            if new_loc is not entry:
+                self.bol_ladder[i] = new_loc           # in-place rewrite
             keep += 1
         original_len = len(self.bol_ladder)
         old_top = self.bol_ladder.top
         self.bol_ladder.truncate_to(keep)
-        # Record the truncation count only when entries were actually dropped.
         if keep < original_len:
             self.last_truncate_keep = keep
             self.last_truncate_invalidated_top = (old_top >= keep)

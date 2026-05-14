@@ -3,18 +3,16 @@ import curses
 import os
 from time import time
 from enum import IntEnum
-from typing import TYPE_CHECKING, Callable, Literal, cast
+from typing import Callable, Literal, cast
 
 import logging
 
 
 from .document import Document, Location
+from .edit import Edit
 from .editor import Editor
 from .display import Display, Cell
 from .screen import Screen
-
-if TYPE_CHECKING:
-    from .piece import Piece
 
 
 logging.basicConfig(level=logging.INFO, filename='ptedit.log', filemode='w')
@@ -211,7 +209,7 @@ class Controller:
         if self.change_count == 0 and self.doc.dirty:
             self.save('~')
 
-    def change_handler(self, start: Location, end: Location, unlinked: tuple[Piece, Piece] | None = None) -> None:
+    def change_handler(self, edit: Edit) -> None:
         self.autosave()
 
     def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:

@@ -1,15 +1,13 @@
 # The view layer: paints lines from Layout onto a Screen and tracks scroll state.
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 from .document import Document
+from .edit import Edit
 from .location import Location
 from .layout import Layout
 from .screen import Screen
-
-if TYPE_CHECKING:
-    from .piece import Piece
 
 
 class Cell(NamedTuple):
@@ -44,8 +42,8 @@ class Display:
 
         self.doc.watch(self.change_handler)
 
-    def change_handler(self, start: Location, end: Location, unlinked: tuple[Piece, Piece] | None = None) -> None:
-        self.layout.change_handler(start, end, unlinked)
+    def change_handler(self, edit: Edit) -> None:
+        self.layout.change_handler(edit)
 
     ### External interface begins
 
