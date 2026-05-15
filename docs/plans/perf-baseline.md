@@ -191,14 +191,51 @@ the deque indexing hurts. Trading semantic clarity (deque is the doc's
 ring-buffer analogue) for ~57% on the line-nav perftest. A list-backed
 `Ladder` with an explicit MAX cap would recover the speed.
 
+### Stage 2 + Edit.remap_location (preserves ladder across piece splits)
+
+`tools/trace_insert.py` (stats-based) showed `insert` perftest was wiping
+the entire ladder on every step: validity rule 1 dropped any entry whose
+piece was in the unlinked set, and for the single-piece-split case
+(insert in the middle of one large piece) that meant *every* ladder
+entry was on the just-unlinked piece. Ladder averaged 4.2 entries, 99%
+of frames force-recentered, ~4 reanchors/frame.
+
+Fix (commit `8a7d1ad`): move the remap logic into `Edit` —
+`Edit.remap_location(loc)` returns `(pre, offset)` for entries on the
+prefix side of a split, `(post, offset - post_start_in_P)` for the
+suffix side, or `None` only when the location truly can't be preserved
+(deleted slice, multi-piece unlink). Watcher signature simplifies to
+`Callable[[Edit], None]`; `Layout.change_handler(edit)` walks the ladder
+calling `edit.remap_location(entry)` per entry, applying the
+`cols`-margin rule on the remapped position. `Display.change_handler`
+also remaps `top_loc` so the screen anchor doesn't go stale after the
+in-place ladder rewrite.
+
+Stats after remap (1 second insert perftest):
+- recenter rate: 51% (was 99%)
+- reanchors per frame: 0.7 (was 3.6)
+- ladder length at `find_top`: avg 4.5 (was 4.2 — still low because the
+  perftest's cursor-migration pattern truncates aggressively each
+  iteration, but the ladder is healthy mid-frame: avg 25 entries at
+  `change_handler` entry)
+
+| scenario       | pre-remap | post-remap |
+|----------------|-----------|------------|
+| insert         | 252       | **322**    |
+| up_from_end    | 1432      | 1415       |
+| pgup_from_end  | 257       | 255        |
+| pgdn_from_top  | 332       | 327        |
+
+`insert` +28%; other scenarios unchanged (no edits → no remap activity).
+
 ### Summary vs pre-rewrite
 
 | scenario       | pre-rewrite | naive | final | final / pre-rewrite |
 |----------------|-------------|-------|-------|---------------------|
-| insert         | 150         | 101   | 252   | **1.7×**            |
-| up_from_end    | 525         | 122   | 1428  | **2.7×**            |
-| pgup_from_end  | 218         | 57    | 257   | 118%                |
-| pgdn_from_top  | 346         | 122   | 332   | 96%                 |
+| insert         | 150         | 101   | 322   | **2.1×**            |
+| up_from_end    | 525         | 122   | 1415  | **2.7×**            |
+| pgup_from_end  | 218         | 57    | 255   | 117%                |
+| pgdn_from_top  | 346         | 122   | 327   | 95%                 |
 
 Common interactive ops (line nav, typing) are faster. Page scrolls
 land within noise of pre-rewrite — they're full redraws in both
