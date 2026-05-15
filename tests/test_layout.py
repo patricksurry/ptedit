@@ -180,3 +180,117 @@ def test_change_handler_drops_entry_at_cols_boundary():
     doc.insert('x')
     assert len(lay.bol_ladder) == 1
     assert lay.bol_ladder[0].position() == 0
+
+# --- Regression test for the implicit reanchor / bol_to_prev_bol contract ---
+#
+# `bol_to_prev_bol`'s fallback (cursor at lad[0]) does:
+#     move_point(-1) → cursor-1
+#     reanchor(cursor-1)
+#     if len(bol_ladder) >= 2: set_point(bol_ladder[-2])
+#
+# This depends on a subtle invariant about reanchor's resulting ladder:
+#
+#   * In the normal case (cursor-1 is mid-line or at a hard '\n' before
+#     non-empty content), reanchor's forward-format loop produces a ladder
+#     ending at the position AFTER the '\n' at cursor-1 — i.e., lad[-1] is
+#     at position `cursor`, and lad[-2] is the BoL of the line just before
+#     cursor. The fallback's `set_point(lad[-2])` then correctly lands at
+#     the previous visual BoL.
+#
+#   * In the empty-line case (doc[cursor-2] == '\n' AND doc[cursor-1] == '\n',
+#     i.e., consecutive newlines marking an empty paragraph between two
+#     real ones), reanchor's `find_char_backward('\n')` from cursor-1 sees
+#     a '\n' immediately behind it and doesn't move — anchor stays at
+#     cursor-1, the forward-format loop doesn't run, and the resulting
+#     ladder is a single entry [cursor-1]. The fallback's `len >= 2` guard
+#     skips the `set_point` and cursor stays at save_pt == cursor-1 — which
+#     happens to be the correct answer: the BoL of the empty line.
+#
+# The "happy accident" in case 2 is what makes deep-reanchor variants (e.g.
+# back-scanning past several newlines to produce a bigger initial ladder)
+# silently wrong: they make the ladder multi-entry, the `len < 2` guard
+# falls through, and `set_point(lad[-2])` lands at the BoL of the line
+# BEFORE the empty line, skipping the empty line entirely.
+#
+# These tests pin the behavior so any future change to reanchor or to the
+# fallback has to think about the consecutive-'\n' case explicitly.
+
+
+def test_bol_to_prev_bol_at_top_lands_on_empty_line():
+    """REGRESSION: stepping bol_to_prev_bol from a paragraph whose previous
+    visual line is empty (consecutive '\\n's) must land on the empty line,
+    not skip over it.
+
+    The fallback path in bol_to_prev_bol (cursor at lad[0], so no cached
+    prev BoL) calls `reanchor(cursor-1)`. With shallow reanchor the
+    resulting ladder for this case has only one entry, the `len >= 2`
+    guard skips `set_point(lad[-2])`, and cursor stays at cursor-1 —
+    the empty line's BoL. A deeper reanchor variant would produce a
+    multi-entry ladder, the guard would fire, and cursor would land at
+    the BoL of the line BEFORE the empty line (wrong).
+    """
+    # "p1.\n\np3.\n" — 8 chars, with empty paragraph between p1 and p3.
+    #  0123 4  56789
+    #  p1.  \n \n p3.\n
+    # '\n' at position 3 ends paragraph 1.
+    # '\n' at position 4 is the empty paragraph (its BoL is also position 4).
+    # 'p' at position 5 is the start of paragraph 3 (its hard BoL).
+    doc = document.Document('p1.\n\np3.\n')
+    lay = layout.Layout(doc, 24, 24)
+
+    # Position cursor at the BoL of paragraph 3 (position 5).
+    doc.set_point_start().move_point(5)
+    cursor = doc.get_point()
+
+    # Seed the ladder with just [cursor], so cursor is at lad[0] and
+    # bol_to_prev_bol falls into the reanchor fallback path.
+    lay.bol_ladder.append(cursor)
+    assert len(lay.bol_ladder) == 1
+
+    lay.bol_to_prev_bol()
+
+    # Cursor should now be on the empty paragraph (position 4).
+    assert doc.get_point().position() == 4, (
+        f"bol_to_prev_bol should land on the empty line (pos 4), "
+        f"got pos {doc.get_point().position()}"
+    )
+
+
+def test_reanchor_lad_shape_invariant():
+    """Document the implicit invariant that bol_to_prev_bol's fallback
+    relies on: after `reanchor(cursor)`, EITHER
+
+      (a) the ladder ends with an entry at position `cursor` and a
+          previous entry, so set_point(lad[-2]) lands at the prev BoL; OR
+
+      (b) the ladder has exactly one entry at position `cursor`, signalling
+          "cursor is itself the BoL we want — don't step further".
+
+    Future changes that produce a multi-entry ladder whose last entry is
+    AT position `cursor` (rather than past) would break this contract
+    silently — the fallback's `set_point(lad[-2])` would skip the line
+    cursor is on. This test catches that.
+    """
+    # The empty-line case: cursor at position 4 (the '\n' of an empty para).
+    # find_char_backward from pos 4 lands at pos 4 (no movement, since
+    # doc[3] is already '\n'). Forward-format loop exits immediately.
+    # Expected shape: lad = [pos 4]  (single entry).
+    doc = document.Document('p1.\n\np3.\n')
+    lay = layout.Layout(doc, 24, 24)
+    doc.set_point_start().move_point(4)
+    cursor = doc.get_point()
+
+    lay.reanchor(cursor)
+
+    if len(lay.bol_ladder) == 1:
+        # Shape (b): single-entry ladder; entry IS at cursor's position.
+        assert lay.bol_ladder[0].position() == cursor.position()
+    else:
+        # Shape (a): multi-entry; lad[-1] must be PAST cursor for
+        # set_point(lad[-2]) to be the correct prev BoL.
+        assert lay.bol_ladder[-1].position() > cursor.position(), (
+            f"reanchor invariant violated: lad[-1].pos={lay.bol_ladder[-1].position()} "
+            f"should be > cursor.pos={cursor.position()}, or ladder should be "
+            f"single-entry. This is the implicit contract bol_to_prev_bol's "
+            f"fallback depends on; see docs/rendering.md Open Questions."
+        )
