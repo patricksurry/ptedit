@@ -205,56 +205,38 @@ move is needed.
   truncating below the cursor each step, not reanchor itself. Net:
   shallow `reanchor` stays.
 
-- **Known bug: `bol_to_prev_bol` fallback can skip a visual line.**
+- **`bol_to_prev_bol` fallback contract (empty-line edge case).**
   The fallback walks `move_point(-1)` + `reanchor(cursor-1)` +
   `set_point(lad[-2])`. The `set_point(lad[-2])` implicitly assumes
-  `lad[-1]` lands at a position *one past* `cursor_arg` — true when
-  `format_line` crosses a `\n` or wrap char at `cursor_arg - 1`
-  (point ends at `cursor_arg`). It **fails** when `format_line` lands
-  *exactly* at `cursor_arg`:
+  the multi-entry ladder reanchor produces has `lad[-1]` at a
+  position *strictly past* `cursor_arg`. That holds for **shallow
+  reanchor** by the following argument:
 
-    1. **Empty-line case** (deep reanchor only). `cursor_arg` is the
-       `\n` of an empty paragraph (doc has `..."\n\n"...`). With
-       shallow reanchor, `find_char_backward('\n')` from `cursor_arg`
-       doesn't move (the `\n` is right behind it), the ladder stays
-       single-entry, the `len(lad) < 2` guard skips `set_point`, and
-       cursor correctly stays at `cursor_arg` (the empty line's BoL).
-       With deep reanchor, the backscan goes past the immediate `\n`,
-       a multi-entry ladder is produced, the guard falls through, and
-       `set_point(lad[-2])` skips the empty line. Pinned by
-       `test_reanchor_lad_shape_invariant` (currently green; would go
-       red against any deep-reanchor variant).
+  > A length-1 visual line can only be an empty paragraph — a lone
+  > `\n` (`format_line` stops after one char only on `\n` or at-end;
+  > it cannot stop at `len == cols` after one char because
+  > `cols ≥ tab ≥ 4`). So two *consecutive* visual BoLs (positions
+  > differing by 1) imply an empty line between them. For the
+  > fallback's `set_point(lad[-2])` to be wrong, `reanchor` would
+  > have to land `lad[-1]` exactly at `cursor_arg` with `≥2` entries
+  > — which requires `cursor_arg` itself to be a length-1-line BoL,
+  > i.e. an empty-paragraph `\n`, i.e. `doc[cursor_arg-1] == '\n'`.
+  > But then shallow `reanchor`'s `find_char_backward('\n')` from
+  > `cursor_arg` does not move (a `\n` is right behind it), the
+  > ladder stays single-entry, and the `len(lad) < 2` guard skips
+  > `set_point` — leaving the cursor correctly on the empty line.
 
-    2. **Soft-wrap-line case** (shallow reanchor — present in current
-       code). `cursor_arg` is the BoL of a soft-wrap visual line one
-       char before a hard BoL, when `format_line`'s natural cols-stop
-       happens to land at `cursor_arg`. Example: doc `'abcd ef'`,
-       `cols=4` — visual BoLs at 0, 4 (`' '`), 5 (`'ef'`).
-       `bol_to_prev_bol` from cursor=5 should land at 4 (the `' '`
-       line) but lands at 0 instead, skipping the wrap line entirely.
-       Pinned by `test_bol_to_prev_bol_skips_soft_wrap_line` —
-       currently **xfailed** as a known bug. Real-world relevance:
-       long unbroken identifiers / URLs / hex blobs in code, sitting
-       just before a wrap char, where the cursor's screen anchor
-       happens to be the cached `lad[0]`.
-
-   Root cause: the implicit invariant "after `reanchor(cursor)` with a
-   multi-entry ladder, `lad[-1].position() > cursor.position()`" does
-   not hold in all cases — `format_line` can land at `cursor` exactly
-   (natural cols-stop with no wrap chars, or a `\n` consumed at
-   exactly `cursor - 1`). Possible fixes:
-
-   - Stronger reanchor: extend the forward-format loop to one more
-     iteration when `point == cursor` (consumes the line at cursor).
-     Requires care at doc end to avoid an infinite loop on the
-     at_end sentinel.
-   - Smarter fallback: in `bol_to_prev_bol`, after `reanchor(cursor_arg)`,
-     check whether `lad[-1].position() == cursor_arg` and use
-     `lad[-1]` directly (or `cursor_arg`, equivalent) in that case
-     instead of `lad[-2]`.
-
-   The second is a smaller, more local change; preferred direction
-   when we get around to it.
+  So shallow reanchor is safe. A **deep reanchor** variant (one that
+  back-scans *past* the immediate `\n`) breaks the argument: it turns
+  the single-entry empty-line ladder into a multi-entry one, the
+  guard falls through, and `set_point(lad[-2])` skips the empty line.
+  Pinned by `test_reanchor_lad_shape_invariant` and
+  `test_bol_to_prev_bol_at_top_lands_on_empty_line` (both green on
+  shallow reanchor; the invariant test goes red against any
+  deep-reanchor variant). If `reanchor` is ever changed to back-scan
+  deeper, fix the fallback at the same time — e.g. after
+  `reanchor(cursor_arg)`, check `lad[-1].position() == cursor_arg`
+  and use `lad[-1]` (≡ `cursor_arg`) directly instead of `lad[-2]`.
 
 - **Smart reanchor during recenter walks.** When `find_top`'s
   recenter calls `bol_to_prev_bol × preferred_row` and each hits
