@@ -319,3 +319,55 @@ def test_bol_to_prev_bol_at_top_of_long_unwrapped_run():
         f"bol_to_prev_bol from soft-wrap BoL=4 should land at the prior "
         f"visual BoL=0, got pos {doc.get_point().position()}"
     )
+
+
+import pytest
+
+
+@pytest.mark.xfail(
+    reason="known live bug: bol_to_prev_bol fallback's set_point(lad[-2]) "
+    "skips a length-1 soft-wrap line; see docs/rendering.md Open Questions",
+    strict=True,
+)
+def test_bol_to_prev_bol_skips_length1_soft_wrap_line():
+    """REGRESSION (currently RED — live bug in shallow reanchor).
+
+    `format_line` can emit a length-1 visual line that is NOT an empty
+    paragraph: when a line fills exactly `cols` and the next line begins
+    with a wrap char followed by enough non-wrap chars to overflow, the
+    wrap char gets trimmed onto its own visual line.
+
+    Doc 'abcd efgh', cols=4 (verified via format_line):
+        BoL  0: 'abcd'
+        BoL  4: ' '        <- length-1 soft-wrap line (the space)
+        BoL  5: 'efgh'
+
+    `bol_to_prev_bol` from cursor=5 must land at 4 (the ' ' line).
+    It lands at 0 instead — skipping the ' ' line:
+
+      - move_point(-1) -> cursor at 4.
+      - reanchor(4): find_char_backward('\\n') finds nothing -> anchor 0.
+        format_line at 0 emits 'abcd', point lands at 4. lad=[0, 4].
+        Loop `point < cursor_arg(4)` -> 4<4 false -> exit.
+        lad[-1] == 4 == cursor_arg  (the bug shape).
+      - len(lad) >= 2 -> set_point(lad[-2]=0). Cursor at 0.
+
+    This refutes the earlier claim that shallow reanchor is immune: the
+    bug shape requires `cursor_arg` to be a length-1-line BoL, and a
+    length-1 line CAN be a soft-wrap artifact (not just an empty
+    paragraph). Fix direction: in bol_to_prev_bol's fallback, after
+    reanchor, if lad[-1].position() == cursor_arg use lad[-1] directly.
+    """
+    doc = document.Document('abcd efgh')
+    lay = layout.Layout(doc, 4, 24)  # cols=4, tab=4
+
+    doc.set_point_start().move_point(5)  # BoL of 'efgh'
+    lay.bol_ladder.append(doc.get_point())
+    assert len(lay.bol_ladder) == 1
+
+    lay.bol_to_prev_bol()
+
+    assert doc.get_point().position() == 4, (
+        f"bol_to_prev_bol from BoL=5 should land on the ' ' line at "
+        f"pos 4, got pos {doc.get_point().position()}"
+    )
