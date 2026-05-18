@@ -198,37 +198,63 @@ move is needed.
   `reanchor` builds a ladder, keep backscanning past *several*
   newlines so the resulting ladder is big enough to absorb a few
   upward steps before the next rebuild — say, half a screen of
-  chars. Tried (`rows * cols / 2` threshold). **Two findings:**
+  chars. Tried (`rows * cols / 2` threshold) — **perf regression**,
+  not improvement: `insert` -24%, `up_from_end` -21%. Each reanchor's
+  cost grew ~5× and the rare-cascade-during-recenter benefit didn't
+  compensate. The dominant `insert` cost is `change_handler`
+  truncating below the cursor each step, not reanchor itself. Net:
+  shallow `reanchor` stays.
 
-    1. **Perf regression**, not improvement: `insert` -24%,
-       `up_from_end` -21%. Each reanchor's cost grew ~5× (one
-       backscan per paragraph crossed, plus more `format_line`
-       calls forward) and the rare-cascade-during-recenter benefit
-       didn't compensate. The dominant `insert` cost is
-       `change_handler` truncating below the cursor each step, not
-       reanchor itself.
+- **Known bug: `bol_to_prev_bol` fallback can skip a visual line.**
+  The fallback walks `move_point(-1)` + `reanchor(cursor-1)` +
+  `set_point(lad[-2])`. The `set_point(lad[-2])` implicitly assumes
+  `lad[-1]` lands at a position *one past* `cursor_arg` — true when
+  `format_line` crosses a `\n` or wrap char at `cursor_arg - 1`
+  (point ends at `cursor_arg`). It **fails** when `format_line` lands
+  *exactly* at `cursor_arg`:
 
-    2. **Latent contract violation revealed.** `bol_to_prev_bol`'s
-       fallback walks `move_point(-1)` + `reanchor(cursor-1)` +
-       `set_point(lad[-2])`. With *shallow* reanchor the cursor-1
-       case "at a `\n` preceded by a `\n`" (consecutive newlines /
-       empty line) produces a single-entry ladder; `len(lad) < 2`
-       skips the `set_point`; cursor stays at `cursor-1` (the empty
-       line's BoL) — *correct*. With *deep* reanchor the same case
-       produces a multi-entry ladder; the `set_point(lad[-2])`
-       fires and lands at the line *before* the empty line —
-       *wrong*. The empty line's BoL is never re-emitted because
-       `reanchor`'s forward-format loop condition `point < cursor`
-       exits exactly when `point == cursor-1`. The fix would be a
-       loop condition that consumes one more `format_line` when
-       `point == cursor`, but that risks an infinite loop at doc
-       end; ought to be worked out carefully if we revisit this.
+    1. **Empty-line case** (deep reanchor only). `cursor_arg` is the
+       `\n` of an empty paragraph (doc has `..."\n\n"...`). With
+       shallow reanchor, `find_char_backward('\n')` from `cursor_arg`
+       doesn't move (the `\n` is right behind it), the ladder stays
+       single-entry, the `len(lad) < 2` guard skips `set_point`, and
+       cursor correctly stays at `cursor_arg` (the empty line's BoL).
+       With deep reanchor, the backscan goes past the immediate `\n`,
+       a multi-entry ladder is produced, the guard falls through, and
+       `set_point(lad[-2])` skips the empty line. Pinned by
+       `test_reanchor_lad_shape_invariant` (currently green; would go
+       red against any deep-reanchor variant).
 
-   Net: shallow `reanchor` stays. The contract between `reanchor`
-   and `bol_to_prev_bol`'s fallback is implicit ("reanchor produces
-   a single-entry ladder iff cursor is already at a hard BoL whose
-   previous char is also `\n`") and should be made explicit before
-   any change to either side.
+    2. **Soft-wrap-line case** (shallow reanchor — present in current
+       code). `cursor_arg` is the BoL of a soft-wrap visual line one
+       char before a hard BoL, when `format_line`'s natural cols-stop
+       happens to land at `cursor_arg`. Example: doc `'abcd ef'`,
+       `cols=4` — visual BoLs at 0, 4 (`' '`), 5 (`'ef'`).
+       `bol_to_prev_bol` from cursor=5 should land at 4 (the `' '`
+       line) but lands at 0 instead, skipping the wrap line entirely.
+       Pinned by `test_bol_to_prev_bol_skips_soft_wrap_line` —
+       currently **xfailed** as a known bug. Real-world relevance:
+       long unbroken identifiers / URLs / hex blobs in code, sitting
+       just before a wrap char, where the cursor's screen anchor
+       happens to be the cached `lad[0]`.
+
+   Root cause: the implicit invariant "after `reanchor(cursor)` with a
+   multi-entry ladder, `lad[-1].position() > cursor.position()`" does
+   not hold in all cases — `format_line` can land at `cursor` exactly
+   (natural cols-stop with no wrap chars, or a `\n` consumed at
+   exactly `cursor - 1`). Possible fixes:
+
+   - Stronger reanchor: extend the forward-format loop to one more
+     iteration when `point == cursor` (consumes the line at cursor).
+     Requires care at doc end to avoid an infinite loop on the
+     at_end sentinel.
+   - Smarter fallback: in `bol_to_prev_bol`, after `reanchor(cursor_arg)`,
+     check whether `lad[-1].position() == cursor_arg` and use
+     `lad[-1]` directly (or `cursor_arg`, equivalent) in that case
+     instead of `lad[-2]`.
+
+   The second is a smaller, more local change; preferred direction
+   when we get around to it.
 
 - **Smart reanchor during recenter walks.** When `find_top`'s
   recenter calls `bol_to_prev_bol × preferred_row` and each hits

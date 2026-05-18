@@ -294,3 +294,63 @@ def test_reanchor_lad_shape_invariant():
             f"single-entry. This is the implicit contract bol_to_prev_bol's "
             f"fallback depends on; see docs/rendering.md Open Questions."
         )
+
+
+import pytest
+
+
+@pytest.mark.xfail(reason="known bug in bol_to_prev_bol fallback — set_point(lad[-2]) skips the prev BoL when format_line lands at cursor_arg; see docs/rendering.md Open Questions")
+def test_bol_to_prev_bol_skips_soft_wrap_line():
+    """REGRESSION (currently RED): shallow reanchor produces the same
+    bug shape (`lad[-1] == cursor_arg`, multi-entry) under a different
+    pathological condition — a run of `cols` non-wrap chars ending in a
+    wrap char (long unbroken identifier / URL with a trailing space),
+    where cursor sits at the soft-wrap BoL after the wrap char.
+
+    Doc: 'abcd ef' with cols=4 (default tab=4).
+    Visual BoLs: 0 ('abcd' — natural cols-stop), 4 (' ' — wraps), 5 ('ef').
+
+    `bol_to_prev_bol` from cursor=5 should land at 4 (the ' ' line, BoL
+    of the immediately preceding visual line). Current code lands at 0
+    instead, **skipping** the wrap line entirely:
+
+      - move_point(-1) → cursor at 4.
+      - reanchor(4): find_char_backward('\\n') finds nothing → anchor=0.
+        Forward-format: format_line at 0 reads 'abcd', no wrap chars,
+        natural cols-stop at len=4, point lands at 4. Append 4.
+        lad=[0, 4]. Loop check 4<4 → exit. **lad[-1] = 4 = cursor_arg
+        — the bug shape.**
+      - `len(lad) >= 2`, so `set_point(lad[-2]=0)`. Cursor at 0,
+        skipping the ' ' line at position 4.
+
+    Same bug class as the empty-line case in the deep-reanchor experiment.
+    The implicit contract "lad[-1] is one past cursor_arg" fails when
+    `format_line`'s natural cols-stop or last wrap_point happens to land
+    at cursor_arg. See docs/rendering.md Open Questions.
+
+    Real-world relevance: code with long unbroken identifiers, URLs, or
+    hex blobs sitting just before a wrap char (space/tab/hyphen), where
+    the cursor's screen anchor happens to be the cached `lad[0]`.
+    """
+    doc = document.Document('abcd ef')
+    lay = layout.Layout(doc, 4, 24)  # cols=4, tab=4 (default)
+
+    # Seed the ladder with just [Loc(5)] so cursor at lad[0] forces the
+    # bol_to_prev_bol fallback path.
+    doc.set_point_start().move_point(5)
+    cursor = doc.get_point()
+    lay.bol_ladder.append(cursor)
+    assert len(lay.bol_ladder) == 1
+
+    lay.bol_to_prev_bol()
+
+    # Expected: cursor at position 4 (the soft-wrap ' ' BoL).
+    # Current (buggy): cursor at position 0 (skipped the ' ' line entirely).
+    assert doc.get_point().position() == 4, (
+        f"bol_to_prev_bol from soft-wrap BoL=5 should land at the "
+        f"immediately preceding visual BoL (pos 4, the ' ' line), got "
+        f"pos {doc.get_point().position()}. The `set_point(lad[-2])` in "
+        f"bol_to_prev_bol's fallback assumes lad[-1] is one past "
+        f"cursor_arg, which fails here. See docs/rendering.md Open "
+        f"Questions for the contract."
+    )
