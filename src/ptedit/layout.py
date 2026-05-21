@@ -63,46 +63,57 @@ class Layout:
         self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
         self.last_truncate_invalidated_top: bool = False  # True if truncation reached/passed top row
 
-    # ----- line moves: layout-level operations on the ladder/cursor -----
+    # ----- cursor commands: layout-level vertical/line moves -----
+    # `bol_to_next_bol` / `bol_to_prev_bol` are no-ops at doc end / start
+    # respectively, so these don't need their own boundary guards.  We pin
+    # the preferred column for the next paint only when the move actually
+    # advanced — otherwise the column-fixup would "snap" the cursor back
+    # to the preferred column even at a boundary where no move happened.
 
     def move_start_line(self) -> None:
+        """Move cursor to BoL of its current visual line."""
         self.clamp_to_bol()
 
     def move_end_line(self) -> None:
+        """Move cursor to the end of its current visual line."""
         self.clamp_to_bol()
         self.bol_to_next_bol()
         if not self.doc.at_end():
             self.doc.move_point(-1)
 
-    def move_forward_line(self) -> None:
+    def _vertical_move(self, step, count: int = 1) -> None:
+        """Apply `step` (bol_to_next_bol / bol_to_prev_bol) `count` times,
+        starting from a clamped BoL, pinning the preferred column iff the
+        cursor actually advanced."""
         self.clamp_to_bol()
-        if not self.doc.at_end():
-            self.bol_to_next_bol()
-            # defer column setting until we render the line with the point
+        before = self.doc.get_point()
+        for _ in range(count):
+            step()
+        if self.doc.get_point() != before:
             self.pin_preferred_col = True
+
+    def move_forward_line(self) -> None:
+        """Move cursor one visual line forward, tracking preferred column."""
+        self._vertical_move(self.bol_to_next_bol)
 
     def move_backward_line(self) -> None:
-        self.clamp_to_bol()
-        if not self.doc.at_start():
-            self.bol_to_prev_bol()
-            self.pin_preferred_col = True
+        """Move cursor one visual line backward, tracking preferred column."""
+        self._vertical_move(self.bol_to_prev_bol)
 
     def move_forward_page(self) -> None:
-        self.clamp_to_bol()
-        for _ in range(self.rows):
-            self.bol_to_next_bol()
-        self.pin_preferred_col = True
+        """Move cursor `rows` visual lines forward."""
+        self._vertical_move(self.bol_to_next_bol, self.rows)
 
     def move_backward_page(self) -> None:
-        self.clamp_to_bol()
-        for _ in range(self.rows):
-            self.bol_to_prev_bol()
-        self.pin_preferred_col = True
+        """Move cursor `rows` visual lines backward."""
+        self._vertical_move(self.bol_to_prev_bol, self.rows)
 
     def change_handler(self, edit: Edit) -> None:
-        """Per docs/rendering.md validity: keep ladder entries that remap
-        cleanly into the post-edit chain AND sit more than `cols` chars
-        before the edit start; truncate at the first failure."""
+        """Truncate the ladder past entries invalidated by `edit`.
+
+        See docs/rendering.md Validity / Remap for the two rules
+        (remappable piece AND more than `cols` chars before edit start).
+        """
         if not self.bol_ladder:
             return
         stats.sample('change_handler.ladder_len_before', float(len(self.bol_ladder)))
@@ -126,35 +137,30 @@ class Layout:
             self.last_truncate_invalidated_top = (old_top >= keep)
 
     def reanchor(self, cursor: Location) -> None:
-        """Rebuild the ladder fresh: backscan from cursor to nearest newline
-        (or doc start), seed the ladder with that anchor, and forward-format
-        until cursor is bracketed.
-
-        find_char_backward('\n') leaves the point *after* the newline (i.e. at
-        the hard BoL) if a newline is found, or at doc start otherwise.  No
-        move_point(-1) prelude is needed: calling from a position that is
-        already a hard BoL will land back at the same BoL, which is correct.
-        """
+        """Rebuild the ladder fresh, rooted at the hard BoL at or before `cursor`."""
         stats.tick('reanchor')
         save_pt = self.doc.get_point()
         self.doc.set_point(cursor)
+        # find_char_backward('\n') leaves point AFTER the newline (i.e. at
+        # the hard BoL).  No move_point(-1) prelude is needed — calling
+        # from a position that is already a hard BoL leaves point in place.
         if not self.doc.at_start():
             self.doc.find_char_backward('\n')
         anchor = self.doc.get_point()
         self.bol_ladder.reset(anchor)
-        # Forward-format until the cursor lies within the cached range.
+        # Walk forward emitting visual lines until cursor is bracketed.
         while self.doc.get_point().is_strictly_before(cursor):
             self.format_line()
             self.bol_ladder.append(self.doc.get_point())
-        # Top is the screen-anchor; for re-anchor, set it = 0 (the spec's "first").
-        # reset() already did this, kept for clarity vs the spec's first/top/last.
         self.bol_ladder.top = 0
         self.doc.set_point(save_pt)
 
     def _extend_to(self, cursor: Location) -> None:
-        """Format forward from the last cached BoL until cursor is bracketed."""
+        """Extend the ladder forward until `cursor` is bracketed."""
         save_pt = self.doc.get_point()
         self.doc.set_point(self.bol_ladder[-1])
+        # Bound to `rows` iterations — anything further is more expensive
+        # than a fresh redraw, so the caller should reanchor instead.
         added = 0
         while self.doc.get_point().is_strictly_before(cursor) and added < self.rows:
             self.format_line()
@@ -163,12 +169,11 @@ class Layout:
         self.doc.set_point(save_pt)
 
     def ensure_bracketed(self, cursor: Location) -> int:
-        """Phase 1: ensure the ladder brackets `cursor`.
+        """Make sure the ladder brackets `cursor`, returning its line index.
 
-        Extends the ladder forward when the cursor is close past the last
-        entry, re-anchors otherwise (cursor before the ladder, or far past
-        the end). Returns the cursor's line index in the (possibly extended)
-        ladder."""
+        See docs/rendering.md Phase 1 for the bracket / extend / re-anchor
+        cases.
+        """
         lad = self.bol_ladder
         if not lad or cursor.is_strictly_before(lad[0]):
             stats.tick('ensure_bracketed.reanchor.before')
@@ -186,7 +191,7 @@ class Layout:
         return self.line_index(cursor)
 
     def line_index(self, cursor: Location) -> int:
-        """Index of the ladder entry whose line contains `cursor`."""
+        """Index of the ladder entry whose visual line contains `cursor`."""
         lad = self.bol_ladder
         for i in range(len(lad) - 1):
             if cursor.is_strictly_before(lad[i + 1]):
@@ -194,17 +199,14 @@ class Layout:
         return len(lad) - 1
 
     def line_index_of_loc(self, loc: Location) -> int | None:
-        """Return the index of the ladder entry equal to `loc`, or None if not found."""
+        """Index of the ladder entry equal to `loc`, or None if not found."""
         for i, entry in enumerate(self.bol_ladder):
             if entry == loc:
                 return i
         return None
 
     def clamp_to_bol(self) -> None:
-        """
-        Move the point back to prior bol.
-        Unlike bol_to_prev_bol this is a no-op if we're already at BOL
-        """
+        """Move cursor to the BoL of its current visual line (no-op at doc start)."""
         if self.doc.at_start():
             return
         cursor = self.doc.get_point()
@@ -212,27 +214,21 @@ class Layout:
         self.doc.set_point(self.bol_ladder[i])
 
     def bol_to_next_bol(self) -> None:
-        """Move from a BoL to the next BoL. Precondition: point is on a BoL.
-
-        Uses the ladder when the next BoL is cached; otherwise formats one
-        line forward and appends it.
-        """
+        """Move from a BoL to the next BoL (no-op at doc end)."""
+        if self.doc.at_end():
+            return
         bol = self.doc.get_point()
         i = self.ensure_bracketed(bol)
         if i + 1 < len(self.bol_ladder):
             self.doc.set_point(self.bol_ladder[i + 1])
             return
-        # bol is the newest entry; format one more line to advance.
+        # bol is the newest cached entry; format one more line to advance.
         self.format_line()
         if not self.doc.at_end():
             self.bol_ladder.append(self.doc.get_point())
 
     def bol_to_prev_bol(self) -> None:
-        """Move from a BoL to the previous BoL.
-
-        No-op at document start. Uses the ladder when the previous BoL is
-        cached; otherwise re-anchors on the line above and steps back.
-        """
+        """Move from a BoL to the previous BoL (no-op at doc start)."""
         if self.doc.at_start():
             return
         bol = self.doc.get_point()
@@ -240,15 +236,18 @@ class Layout:
         if i > 0:
             self.doc.set_point(self.bol_ladder[i - 1])
             return
-        # bol is the oldest entry — re-anchor on the line before it, then take
-        # the BoL just before bol (ladder[-2]). If that re-anchor produced only
-        # a single entry, it's bol-1 itself (an empty line just above bol) and
-        # reanchor already left the point there — nothing more to do.
+        # bol is the oldest cached entry — extend the ladder backward by
+        # re-anchoring on the previous char and walking forward. After
+        # reanchor, point is restored to that char; the prev visual BoL is
+        # the ladder entry whose line contains it.  This works uniformly:
+        # for a length-1 line above bol (empty paragraph OR a soft-wrap
+        # artifact like 'abcd' / ' ' / 'efgh') line_index returns the index
+        # of that length-1 line at cursor_arg; for a normal line it returns
+        # the index of the line just before bol.
         stats.tick('bol_to_prev_bol.fallback')
         self.doc.move_point(-1)
         self.reanchor(self.doc.get_point())
-        if len(self.bol_ladder) >= 2:
-            self.doc.set_point(self.bol_ladder[-2])
+        self.doc.set_point(self.bol_ladder[self.line_index(self.doc.get_point())])
 
     ### Internal glyph rendering for BoL calcs and painting
 

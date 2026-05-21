@@ -321,15 +321,7 @@ def test_bol_to_prev_bol_at_top_of_long_unwrapped_run():
     )
 
 
-import pytest
-
-
-@pytest.mark.xfail(
-    reason="known live bug: bol_to_prev_bol fallback's set_point(lad[-2]) "
-    "skips a length-1 soft-wrap line; see docs/rendering.md Open Questions",
-    strict=True,
-)
-def test_bol_to_prev_bol_skips_length1_soft_wrap_line():
+def test_bol_to_prev_bol_lands_on_length1_soft_wrap_line():
     """REGRESSION (currently RED — live bug in shallow reanchor).
 
     `format_line` can emit a length-1 visual line that is NOT an empty
