@@ -205,65 +205,29 @@ move is needed.
   truncating below the cursor each step, not reanchor itself. Net:
   shallow `reanchor` stays.
 
-- **LIVE BUG: `bol_to_prev_bol` fallback skips a length-1 line.**
-  The fallback walks `move_point(-1)` + `reanchor(cursor_arg)` +
-  `set_point(lad[-2])`. The `set_point(lad[-2])` implicitly assumes
-  the ladder reanchor produces has `lad[-1]` *strictly past*
-  `cursor_arg` (so `lad[-2]` is the visual BoL we want). It is right
-  when `cursor_arg` is a `\n` ending a non-empty paragraph (the
-  `len(lad) < 2` guard, or `lad[-1]` landing one past). It is
-  **wrong** when `cursor_arg` is itself the BoL of a **length-1
-  visual line** with non-`\n` content above it — then `reanchor`
-  builds a multi-entry ladder whose `lad[-1]` lands *exactly* at
-  `cursor_arg`, the guard falls through, and `set_point(lad[-2])`
-  skips the length-1 line.
+- **`bol_to_prev_bol` fallback contract (resolved).** Earlier the
+  fallback walked `move_point(-1)` + `reanchor(cursor_arg)` +
+  `set_point(lad[-2])`, assuming `lad[-1]` was strictly past
+  `cursor_arg` (so `lad[-2]` was the previous visual BoL). That
+  assumption breaks whenever `cursor_arg` is itself the BoL of a
+  **length-1 visual line** — the `set_point(lad[-2])` then skips
+  that line. Length-1 lines occur as empty paragraphs (lone `\n`)
+  AND as soft-wrap artifacts (e.g. doc `'abcd efgh'` cols=4 →
+  `'abcd'` / `' '` / `'efgh'`, BoLs at 0, 4, 5).
 
-  An earlier version of this doc claimed length-1 visual lines can
-  only be empty paragraphs, so shallow reanchor was "safe". **That
-  is false.** `format_line` also emits a length-1 line as a
-  *soft-wrap artifact*: when a line fills exactly `cols` and the next
-  line starts with a wrap char (space/tab/`-`) followed by enough
-  non-wrap chars to overflow, the wrap char is trimmed onto its own
-  visual line. Verified:
+  Fixed (commit `3b7c420`) by replacing the special-case logic with
+  a uniform `lad[line_index(cursor_arg)]` — `line_index` naturally
+  returns the index of the visual line containing `cursor_arg`,
+  whether that line is length-1 or normal. Pinned by
+  `test_bol_to_prev_bol_lands_on_empty_line` (empty paragraph) and
+  `test_bol_to_prev_bol_lands_on_length1_soft_wrap_line` (soft-wrap
+  artifact); `test_reanchor_lad_shape_invariant` documents the
+  ladder-shape contract that future reanchor changes must preserve.
 
-  ```
-  doc 'abcd efgh', cols=4:
-      BoL 0: 'abcd'
-      BoL 4: ' '       <- length-1 soft-wrap line, NOT an empty paragraph
-      BoL 5: 'efgh'
-  ```
-
-  `bol_to_prev_bol` from BoL 5 should land on the `' '` line (BoL 4)
-  but lands on BoL 0, skipping it. Pinned by
-  `test_bol_to_prev_bol_skips_length1_soft_wrap_line` (xfail, strict).
-  Real-world trigger: a long unbroken token (identifier, URL, hex
-  blob) that exactly fills a row, followed by a space.
-
-  **Fix** (small, local — not yet applied): in `bol_to_prev_bol`'s
-  fallback, replace the `len(lad) >= 2` guard with a check on whether
-  `reanchor` actually advanced past `cursor_arg`:
-
-  ```python
-  self.doc.move_point(-1)
-  cursor_arg = self.doc.get_point()
-  self.reanchor(cursor_arg)
-  # reanchor leaves point at cursor_arg. If lad[-1] IS cursor_arg,
-  # then cursor_arg is itself the previous visual BoL — leave point
-  # there. Otherwise lad[-1] is one past and lad[-2] is the prev BoL.
-  if self.bol_ladder[-1] != cursor_arg:
-      self.doc.set_point(self.bol_ladder[-2])
-  ```
-
-  This subsumes the old single-entry guard (single-entry ⟹
-  `lad[-1] == cursor_arg`) and also handles the multi-entry
-  length-1-line case. (A deep-reanchor variant would still need this
-  same fix; the `test_reanchor_lad_shape_invariant` test pins the
-  shape contract that both sides depend on.)
-
-  Aside: the lone-`' '`-line wrap above (`'abcd'`/`' '`/`'efgh'`) is
-  itself arguably a `format_line` wrap-policy wart — a more natural
-  wrap would consume the space at the boundary (`'abcd'`/`'efgh'`).
-  Separate concern; noted but not pursued here.
+  Aside: the lone-`' '`-line wrap (`'abcd'`/`' '`/`'efgh'`) is itself
+  arguably a `format_line` wrap-policy wart — a more natural wrap
+  would consume the space at the boundary (`'abcd'`/`'efgh'`).
+  Separate concern; not pursued here.
 
 - **Smart reanchor during recenter walks.** When `find_top`'s
   recenter calls `bol_to_prev_bol × preferred_row` and each hits
