@@ -7,7 +7,7 @@ def snippet(s: str, n: int=8):
     return f"'{s}'" if len(s) <= n else f"'{s[:n-2]}...'"
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Piece:
     """
     A Piece represents a span of text in the document.
@@ -78,7 +78,7 @@ class Piece:
         return f"Piece(id={self.id}, prev={None if self.prev is None else self.prev.id}, next={None if self.next is None else self.next.id}, data[{len(self)}]={snippet(self.data)})"
 
 
-@dataclass(repr=False)
+@dataclass(repr=False, eq=False)
 class PrimaryPiece(Piece):
     """
     A primary piece holds string data.
@@ -109,7 +109,7 @@ class PrimaryPiece(Piece):
         return self, 0
 
 
-@dataclass(repr=False)
+@dataclass(repr=False, eq=False)
 class SecondaryPiece(Piece):
     """
     A secondary piece represents a subset of a (single) primary piece,
