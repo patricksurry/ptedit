@@ -166,7 +166,7 @@ class Controller:
                 f"{fname}",
                 f"xy {cursor[1]},{cursor[0]}",
                 f"ch ${ord(self.doc.get_char() or chr(0)):02x}",
-                f"pos {pt.position()}/{len(self.doc)}",
+                f"pos {len(pt_data)}/{len(doc_data)}",
                 f"lns {pt_nl}/{doc_nl}",
                 f"pcs {pt_pieces}/{all_pieces}",
                 f"eds {pt_edits}/{all_edits}",
