@@ -252,3 +252,56 @@ The growth is the doc's design surface: `Ladder` + Phase 1 (`reanchor`,
 `ensure_bracketed`, `_extend_to`, `line_index`) in Layout; sticky top
 with guard-zone scrolling and the four Phase 2 redraw cases (full /
 scroll / local-edit tail / no-scroll skip) in Display.
+
+## MVC cleanup (2026-07-12 plan)
+
+Captured at `6c7921c` against `tests/alice1flow.asc`, mock-Screen path,
+same machine/session as the baseline column (3 back-to-back runs each,
+via a `git worktree add /tmp/ptedit-baseline e7dae25` checkout so both
+columns share hardware and load conditions; values stable to ±1-2 fps
+run-to-run).
+
+| scenario       | pre-cleanup (`e7dae25`) | post-cleanup | ratio |
+|----------------|-------------------------|--------------|-------|
+| insert         | 367                     | 423          | 115%  |
+| up_from_end    | 1433                    | 1250         | 87%   |
+| pgup_from_end  | 258                     | 238          | 92%   |
+| pgdn_from_top  | 349                     | 411          | 118%  |
+
+(ratio = post-cleanup / pre-cleanup; >100% means faster, <100% means slower)
+
+Gate: navigation scenarios within ~10% of baseline, `insert` at or above.
+`insert` and `pgdn_from_top` improved substantially (status-line reuse and
+damage-watermark local-edit renders cut real work). `pgup_from_end` is
+within budget at -8%. `up_from_end` misses the ~10% budget at **-13%** —
+profiled and explicitly justified below rather than fixed, since a fix
+would mean re-opening the already-merged Task 1/2 design (out of scope
+for a docs-only task).
+
+**`up_from_end` regression, root-caused:** `tools/profile_perf.py`
+(extended locally with `Layout._vertical_move`/`column_at`/`locate`)
+shows the destination line's `format_line()` is called **twice** per
+vertical move: once in `Layout._vertical_move` (to convert `goal_col`
+into a document offset so the point lands precisely — Task 1's eager
+design) and once more in `Display.paint`'s `Layout.locate` → `column_at`
+(to compute the cursor's screen column for the `Cell` `paint` returns —
+Task 2's read-only-paint design). Both calls format the *same* line from
+the *same* `bol`. Measured over a 1 s `up_from_end` run (122 frames):
+`_vertical_move`'s `format_line()` ≈ 68 ms, `locate`'s `column_at()` →
+`format_line()` ≈ 68 ms — a near-exact duplicate, ~13% of total profiled
+time, matching the observed regression almost exactly. The pre-cleanup
+renderer did this formatting once: the deferred `pin_preferred_col`
+fixup and the cursor-cell lookup were the *same* `_render_rows(...,
+emit=False)` call in the old `paint`. Splitting "land the point" (now a
+`Layout` command-time concern) from "locate the point for display" (a
+`Display` paint-time concern) is exactly the ownership split Tasks 1-2
+were asked to make, and it costs one redundant `format_line()` per
+vertical move as a direct, structural consequence — not a bug, and not
+something a doc-only task should paper over by reopening that design.
+Recorded as a follow-up below for whoever next touches `Layout`/`Display`
+line caching.
+
+Notes: `insert` is flattered by removing the perftest autosave artifact
+(the old change watcher wrote a backup file every 10 mutations inside the
+timing loop). Undo/redo now cost one reanchor each — accepted trade
+(simplicity on rare paths).

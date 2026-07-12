@@ -114,13 +114,21 @@ an ASCII diagram of an `Edit`'s before/after links.
 |-------------|-----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | Model       | `piece.py`, `edit.py`, `location.py`, `document.py` | The piece-table itself: pieces, edits, point locations, and a `Document` API for char/region access.                            |
 | Layout      | `layout.py`                                         | Maps the document onto a screen grid: caches beginning-of-line marks, formats one line of glyphs, exposes line/page navigation. |
-| View        | `display.py`, `screen.py`                           | Walks lines from `Layout` and paints them via the abstract `Screen`; tracks `preferred_top` for scrolling.                      |
+| View        | `display.py`, `screen.py`                           | Walks lines from `Layout` and paints them via the abstract `Screen`, tracking sticky-top scroll state; `paint` reads the document (point saved/restored) and never mutates model or movement state.                      |
 | Controller  | `editor.py`, `controller.py`                        | `Editor` owns mark/clipboard/isearch state and exposes named commands; `Controller` binds keys and renders the status bar.      |
 
 The split keeps each concern testable in isolation: the model has no
 idea a screen exists, `Layout` knows columns and rows but not curses,
 `Display` paints into a `Screen` that is mocked in tests, and the
 `Editor` talks to `Display` only through a `notify` callback.
+`Document.on_change` is a single hook consumed by `Display`: called
+with the applied `Edit` after a forward edit (so caches can remap
+incrementally on the typing hot path), or with `None` after undo,
+redo, or squash (so caches reset wholesale rather than reasoning
+about remapping through chain surgery). Vertical cursor moves
+(`Layout.move_forward_line`/`move_backward_line`/`move_forward_page`/
+`move_backward_page`) land on their goal column at command time —
+`Display.paint` never adjusts cursor position, only reads it.
 
 ## Repository layout
 

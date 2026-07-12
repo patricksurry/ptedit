@@ -59,9 +59,19 @@ modulo size.
 The Python reference implementation subclasses `list[Location]`
 instead — O(1) indexing, `MAX = 64` enforced manually on `append`
 (oldest entry dropped on overflow). `first == 0` always; `last ==
-len(slots)`; `top` is a plain integer index. The algorithm is
-identical to the Forth contract; the data-structure mechanics
-diverge for Python ergonomics.
+len(slots)`. Unlike the Forth ring, the Python `Ladder` does **not**
+carry `top`: `Display.find_top` derives the screen-row-0 index fresh
+each frame (sticky-top math against last frame's `top_loc`, or a
+recenter walk) and hands it back as a plain `int`, `top_idx`, that
+never outlives the frame. `Layout.make_room` evicts leading rungs
+*before* a frame's rows are appended, so `Ladder.append`'s own
+overflow-eviction (drop-oldest at `MAX`) never fires mid-frame and
+shifts `top_idx` out from under the renderer. `Layout` is the
+ladder's sole owner — `bol`, `ensure_row`, `render_lines`, and
+`make_room` are its accessors; `Display` only reads `len(bol_ladder)`
+for stats/bounds checks and never appends or truncates it directly.
+The algorithm is identical to the Forth contract; the data-structure
+mechanics diverge for Python ergonomics.
 
 ## Rendering Cycle
 
@@ -99,16 +109,28 @@ Phase 1 entirely.
 
 ### Phase 2: Screen Update
 
-| Case | Condition | Work |
-|------|-----------|------|
-| **Full redraw** | `top` value changed (anchor lost, large jump, or scroll) | Re-render every row from the new `top` anchor. |
-| **Local edit**  | `top` unchanged, but `last < top + rows` | Source text changed on screen. Re-render rows `[K, rows)` where `K = last - top`; rows above are byte-stable in the video buffer. |
-| **No scroll**   | `top` unchanged, ladder still covers the window, no edit | Data on screen is valid. If no active selection, emit zero cells (cursor cell handled by the caller). If a selection is active, fall back to Full redraw — cell-granular attribute deltas are a 6502 concern. |
+Each edit records **damage**: the lowest document position whose on-screen
+bytes may have changed, `max(0, edit_pos - cols)` (the `cols` margin covers
+soft-wrap pull-back; multiple edits take the min). Positions — unlike ladder
+indices — survive ladder rebuilds and evictions between edit and paint.
 
-Python folds the doc's "Scroll" sub-case into Full redraw: terminal
-block-copy is out of scope, and the cached ladder primes `format_line`
-either way. A Forth/6502 port should distinguish them to exploit
-video-RAM block moves.
+Paint reduces every case to one number, the **first dirty row**:
+
+| Condition | first dirty row |
+|-----------|-----------------|
+| `top` changed, or a selection is active now or was last frame | 0 (full redraw) |
+| damage recorded | the row containing the damage position (rows above are byte-stable) |
+| otherwise | `rows` (emit zero cells) |
+
+then re-renders rows `[first_dirty, rows)`. On the 6502 the damage watermark
+is one 16-bit position and the dirty row one byte; the Scroll sub-case
+(video-RAM block move, then dirty from the exposed region) slots into the
+same scheme.
+
+Python folds the doc's "Scroll" sub-case into the `top`-changed full
+redraw: terminal block-copy is out of scope, and the cached ladder primes
+`format_line` either way. A Forth/6502 port should distinguish them to
+exploit video-RAM block moves.
 
 ## Validity / Remap
 
@@ -140,6 +162,16 @@ would fail rule 1 without the remap, wiping the ladder on each
 keystroke. With the remap, entries with `offset < len(pre)` migrate
 cleanly to `pre`.
 
+Incremental remap applies only to forward edits (the typing hot path).
+Undo, redo, and squash invalidate the ladder and the sticky top outright —
+one reanchor per undo beats reasoning about remapping locations through an
+edit whose pieces just got swapped back in. `Document.on_change` is the
+single hook this dispatches on: called with the applied `Edit` after a
+forward edit (incremental path above), or with `None` after undo/redo/
+squash, which `Display.note_change` maps straight to
+`Layout.invalidate()` (clears the ladder and the damage watermark) plus
+resetting `top_loc` to `None` so the next `find_top` recenters.
+
 ### Example: Wrap propagation (motivating the `cols` margin)
 
 ```
@@ -163,8 +195,10 @@ Any ladder entry within `cols` of the edit is discarded.
 ## Sticky top & guard-zone scrolling
 
 `find_top` records the document position shown at screen row 0 as
-`top_loc` (a `Location` that gets remapped through edits via the
-same `edit.remap_location`). On the next frame:
+`top_loc` (a `Location` that gets remapped through forward edits via
+the same `edit.remap_location`, or reset to `None` outright on
+undo/redo/squash — see *Validity / Remap*'s wholesale-invalidation
+rule). On the next frame:
 
 - If `top_loc` is still in the ladder AND the cursor's row in window
   satisfies `cur_idx < top_idx + rows`: **sticky** — keep last
@@ -201,7 +235,7 @@ move is needed.
   chars. Tried (`rows * cols / 2` threshold) — **perf regression**,
   not improvement: `insert` -24%, `up_from_end` -21%. Each reanchor's
   cost grew ~5× and the rare-cascade-during-recenter benefit didn't
-  compensate. The dominant `insert` cost is `change_handler`
+  compensate. The dominant `insert` cost is `Layout.note_change`
   truncating below the cursor each step, not reanchor itself. Net:
   shallow `reanchor` stays.
 
@@ -241,12 +275,12 @@ move is needed.
 
 - **Cursor-migrating-upward edits.** The `insert` perftest does
   `insert + back_char + back_line` each iteration, drifting the
-  cursor up through never-edited territory. `change_handler`'s
+  cursor up through never-edited territory. `Layout.note_change`'s
   cols-margin truncation drops every ladder entry below the cursor
   each step (they're all on the just-split piece's `post`, shifted
   by `+1` from the insert, and within `cols` of the edit). The
   ladder oscillates between ~25 entries (after paint extends) and
-  ~3 (after change_handler truncates) — recenter rate ≈ 50%. Not a
+  ~3 (after note_change truncates) — recenter rate ≈ 50%. Not a
   bug — this is the documented `cols`-margin behavior — but the
   perftest's cursor pattern is somewhat pathological for the
   design. Normal interactive editing (cursor stays put while
@@ -255,5 +289,21 @@ move is needed.
 - **`(P, offset) → (pre, offset)` remap.** Implemented (see
   *Validity / Remap*). The doc's earlier note "unclear whether the
   added complexity is justified" turned out to be wrong: without it,
-  `change_handler` wipes the ladder on every keystroke for a
+  `Layout.note_change` wipes the ladder on every keystroke for a
   freshly-opened document, dropping `insert` perf by ~30%.
+
+- **Duplicate `format_line()` per vertical move (open, not fixed).**
+  Splitting "land the point on the goal column" (`Layout._vertical_move`,
+  command time) from "locate the point for the cursor cell"
+  (`Display.paint` → `Layout.locate` → `column_at`, paint time) means
+  both now call `format_line()` on the same destination line every
+  vertical move — the pre-cleanup renderer did this once, folding the
+  deferred `pin_preferred_col` fixup into the same emit-free render that
+  found the cursor cell. Costs `up_from_end` ~13% (see
+  `docs/plans/perf-baseline.md`'s "MVC cleanup" entry for the profiling
+  evidence). A fix would need `Layout` to remember the `col_map` (or
+  just the resulting screen column) it just computed for the current
+  vertical-move destination and let `locate` reuse it when the queried
+  location matches `last_vertical_dest` — deliberately not attempted
+  here since it means reopening the Task 1/2 ownership split rather than
+  a docs change.
