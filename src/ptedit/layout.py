@@ -114,9 +114,16 @@ class Layout:
         dmg = max(0, edit_pos - self.cols)
         self.damage_pos = dmg if self.damage_pos is None else min(self.damage_pos, dmg)
 
+        # A forward edit can move the point's document *position* while
+        # leaving its (piece, offset) representation equal to a stale
+        # last_vertical_dest (e.g. a coalesced backward-delete trims the
+        # active edit's ins piece in place) — so the goal-column chain
+        # can't survive an edit; any edit ends it, like invalidate() does.
+        self.last_vertical_dest = None
+
         if not self.bol_ladder:
             return
-        stats.sample('change_handler.ladder_len_before', float(len(self.bol_ladder)))
+        stats.sample('note_change.ladder_len_before', float(len(self.bol_ladder)))
         keep = 0
         for i, entry in enumerate(self.bol_ladder):
             new_loc = edit.remap_location(entry)
@@ -128,7 +135,7 @@ class Layout:
                 self.bol_ladder[i] = new_loc           # in-place rewrite
             keep += 1
         del self.bol_ladder[keep:]
-        stats.sample('change_handler.ladder_len_after', float(len(self.bol_ladder)))
+        stats.sample('note_change.ladder_len_after', float(len(self.bol_ladder)))
 
     def invalidate(self) -> None:
         """Wholesale cache reset (undo/redo/squash): the next paint re-anchors."""
@@ -216,7 +223,8 @@ class Layout:
 
     def ensure_row(self, i: int) -> Location:
         """Extend the ladder until entry `i` exists; return that BoL, or the
-        end-of-document location if the document has fewer lines."""
+        end-of-document location if the document has fewer lines.
+        Precondition: the ladder is non-empty (callers must reanchor first)."""
         lad = self.bol_ladder
         while i >= len(lad):
             self.doc.set_point(lad[-1])
@@ -240,7 +248,10 @@ class Layout:
 
     def make_room(self, top_idx: int, rows: int) -> int:
         """Evict leading rungs so rows [top_idx, top_idx+rows) can be appended
-        without Ladder.append evicting mid-frame; returns the adjusted index."""
+        without Ladder.append evicting mid-frame; returns the adjusted index.
+        Assumes rows <= Ladder.MAX (a screen taller than the ladder capacity
+        could never be fully bracketed)."""
+        assert rows <= Ladder.MAX
         overflow = top_idx + rows - Ladder.MAX
         if overflow > 0:
             del self.bol_ladder[:overflow]

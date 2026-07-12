@@ -275,14 +275,14 @@ class Document:
         if self._edit.prev:
             self.set_point(self._edit.undo())
             self._edit = self._edit.prev
-        self._notify(None)
+            self._notify(None)
         return self
 
     def redo(self) -> Document:
         if self._edit.next:
             self._edit = self._edit.next
             self.set_point(self._edit.redo())
-        self._notify(None)
+            self._notify(None)
         return self
 
     def __str__(self) -> str:

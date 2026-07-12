@@ -299,6 +299,25 @@ def test_clearing_mark_erases_highlight():
     assert scr.highlight_count() == 0
 
 
+def test_noop_undo_redo_do_not_force_recenter():
+    """A no-op undo/redo (no history to undo/redo) must not wipe caches:
+    _notify(None) resets top_loc and the ladder, which would force the next
+    paint to recenter (a visible viewport jump) and would mark a pristine
+    doc dirty for nothing."""
+    doc = document.Document('hello world')
+    dpy = display.Display(doc, display.Screen(24, 80))
+    dpy.paint()
+    assert dpy.top_loc is not None
+
+    doc.undo()   # no history: must be a true no-op
+    assert dpy.top_loc is not None, "no-op undo should not clear cached top_loc"
+    assert doc.dirty is False, "no-op undo should not mark a pristine doc dirty"
+
+    doc.redo()   # no future either: must be a true no-op
+    assert dpy.top_loc is not None, "no-op redo should not clear cached top_loc"
+    assert doc.dirty is False, "no-op redo should not mark a pristine doc dirty"
+
+
 def test_undo_screen_matches_fresh_render():
     """After undo, the accumulated screen must equal a from-scratch render."""
     text = ('the quick brown fox jumps over the lazy dog. ' * 30)
