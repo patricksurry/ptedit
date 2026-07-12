@@ -105,14 +105,14 @@ class Editor:
         self.isearch_exit()
         self.doc.set_point(self.isearch_origin)
 
-    def _isearch_insert(self, c: str) -> None:
+    def isearch_insert(self, c: str) -> None:
         """Extend search text and restart search"""
         if self.isearch_start:      # defer clearing search text to allow reuse with C-S C-S
             self.isearch_text = ''
         self.isearch_text += c
         self._isearch_restart()
 
-    def _isearch_delete(self) -> None:
+    def isearch_delete(self) -> None:
         """Trim search text and restart search"""
         if self.isearch_start:
             self.isearch_text = ''
@@ -185,26 +185,20 @@ class Editor:
         return s
 
     def insert(self, ch: int) -> None:
+        self._kill_region()
         c = chr(ch)
-        if self.isearch_dir is not None:
-            self._isearch_insert(c)
+        if self.overwrite_mode:
+            self.doc.replace(c)
         else:
-            self._kill_region()
-            if self.overwrite_mode:
-                self.doc.replace(c)
-            else:
-                self.doc.insert(c)
+            self.doc.insert(c)
 
     def delete_forward_char(self) -> None:
         self._kill_region()
         self.doc.delete(1)
 
     def delete_backward_char(self) -> None:
-        if self.isearch_dir is not None:
-            self._isearch_delete()
-        else:
-            self._kill_region()
-            self.doc.delete(-1)
+        self._kill_region()
+        self.doc.delete(-1)
 
     def copy(self) -> None:
         self.clipboard = self._clip_region(cut=False)

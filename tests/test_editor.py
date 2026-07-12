@@ -1,4 +1,5 @@
-from ptedit import document, display, editor
+from ptedit import document, display, editor, controller
+from ptedit.screen import Screen
 
 
 def make_editor(text):
@@ -40,3 +41,17 @@ def test_kill_region_works_when_mark_is_after_point():
     doc.move_point(-5)            # point now at 0, mark at 5 → region is 'hello'
     ed.insert(ord('X'))           # kills region then inserts 'X'
     assert doc.get_data() == 'X world'
+
+
+def test_isearch_keys_route_to_search_not_document(tmp_path):
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    ctrl = controller.Controller(str(f), Screen(24, 80))
+    ctrl.dispatch(controller.ctrl('S'))          # enter isearch
+    for c in 'world':
+        ctrl.dispatch(ord(c))
+    assert ctrl.ed.isearch_text == 'world'
+    assert ctrl.doc.get_point().position() == 11          # point after the match
+    assert ctrl.doc.get_data() == 'hello world\n'         # nothing inserted
+    ctrl.dispatch(127)                                    # isearch backspace
+    assert ctrl.ed.isearch_text == 'worl'

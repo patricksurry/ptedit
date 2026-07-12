@@ -120,7 +120,7 @@ class Controller:
                 ctrl('S'): ed.isearch_forward,
                 ctrl('R'): ed.isearch_backward,
                 ctrl('['): [ed.isearch_cancel, KeyMode.NORMAL],
-                127: ed.delete_backward_char,
+                127: ed.isearch_delete,
                 **printable,
             },
             # KeyMode.META
@@ -289,5 +289,7 @@ class Controller:
                 action()
             elif isinstance(action, KeyMode):
                 self.mode = action
+            elif self.mode == KeyMode.ISEARCH:
+                self.ed.isearch_insert(chr(action))
             else:
                 self.ed.insert(action)
