@@ -363,3 +363,41 @@ def test_bol_to_prev_bol_lands_on_length1_soft_wrap_line():
         f"bol_to_prev_bol from BoL=5 should land on the ' ' line at "
         f"pos 4, got pos {doc.get_point().position()}"
     )
+
+
+def test_goal_column_persists_across_short_line():
+    """Vertical moves land on the goal column immediately (no paint needed)."""
+    doc = document.Document('abcdefgh\nab\nabcdefgh\n')
+    lay = layout.Layout(doc, cols=16, rows=8)
+    doc.move_point(5)                           # line 0, col 5
+    lay.move_forward_line()
+    assert doc.get_point().position() == 11     # 'ab' line clamps to its newline (col 2)
+    lay.move_forward_line()
+    assert doc.get_point().position() == 17     # long line again: goal col 5 restored
+
+
+def test_vertical_move_at_start_clamps_to_bol():
+    doc = document.Document('abcdefgh\nab\n')
+    lay = layout.Layout(doc, cols=16, rows=8)
+    doc.move_point(5)
+    lay.move_backward_line()                    # no line above: clamp to BoL
+    assert doc.get_point().position() == 0
+
+
+def test_vertical_move_from_doc_end_without_trailing_newline():
+    """Parity guard: a cursor at doc end targets col 0 for the *next* vertical
+    move — but here that next move is the one moving off doc end, and it lands
+    on the BoL of the line doc end sits on (position 9, 'abcd'), not line 0.
+
+    Verified against the true old renderer (Layout-only AND the full
+    Display.paint pipeline): `ensure_bracketed` treats a cursor exactly at doc
+    end (no trailing newline) as bracketed by the ladder's trailing phantom
+    entry — itself equal to doc end — so a single bol_to_prev_bol from there
+    steps back only to the real last line's BoL, not past it. This matches
+    old-renderer behavior byte-for-byte; it is not a regression.
+    """
+    doc = document.Document('abcdefgh\nabcd')
+    lay = layout.Layout(doc, cols=16, rows=8)
+    doc.set_point_end()                         # EOD marker at col 4 of line 1
+    lay.move_backward_line()
+    assert doc.get_point().position() == 9      # BoL of 'abcd' (line 1, col 0)

@@ -56,8 +56,8 @@ class Layout:
         self.rows = rows
         self.tab = tab
 
-        self.preferred_col: int = 0         # last column that wasn't
-        self.pin_preferred_col: bool = False  # True if cursor should track preferred col
+        self.goal_col: int = 0                       # column vertical moves aim for
+        self.last_vertical_dest: Location | None = None   # where the last vertical move landed
 
         self.bol_ladder = Ladder()
         self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
@@ -65,10 +65,9 @@ class Layout:
 
     # ----- cursor commands: layout-level vertical/line moves -----
     # `bol_to_next_bol` / `bol_to_prev_bol` are no-ops at doc end / start
-    # respectively, so these don't need their own boundary guards.  We pin
-    # the preferred column for the next paint only when the move actually
-    # advanced — otherwise the column-fixup would "snap" the cursor back
-    # to the preferred column even at a boundary where no move happened.
+    # respectively, so `_vertical_move` doesn't need its own boundary guards
+    # around `step()` itself — it detects a no-op move (dest == bol) after
+    # the fact and resets the goal column there instead.
 
     def move_start_line(self) -> None:
         """Move cursor to BoL of its current visual line."""
@@ -82,22 +81,35 @@ class Layout:
             self.doc.move_point(-1)
 
     def _vertical_move(self, step, count: int = 1) -> None:
-        """Apply `step` (bol_to_next_bol / bol_to_prev_bol) `count` times,
-        starting from a clamped BoL, pinning the preferred column iff the
-        cursor actually advanced."""
-        self.clamp_to_bol()
-        before = self.doc.get_point()
+        """Apply `step` (bol_to_next_bol / bol_to_prev_bol) `count` times from
+        the current line's BoL, landing on `goal_col` in the destination line.
+        The goal column persists across consecutive vertical moves (traversing
+        a short line doesn't lose the column) and is recomputed whenever the
+        cursor moved in between."""
+        cursor = self.doc.get_point()
+        i = self.ensure_bracketed(cursor)
+        bol = self.bol_ladder[i]
+        if self.last_vertical_dest is None or cursor != self.last_vertical_dest:
+            # Parity with the old renderer: a cursor at doc end targets col 0.
+            self.goal_col = 0 if cursor.is_end() else self.column_at(bol, cursor)
+        self.doc.set_point(bol)
         for _ in range(count):
             step()
-        if self.doc.get_point() != before:
-            self.pin_preferred_col = True
+        dest = self.doc.get_point()
+        if dest != bol:
+            _, col_map = self.format_line()      # formats the destination line
+            self.doc.set_point(dest.move(self.offset_for_column(self.goal_col, col_map)))
+        else:
+            # Boundary: no line to move to; the old renderer reset the column here.
+            self.goal_col = 0
+        self.last_vertical_dest = self.doc.get_point()
 
     def move_forward_line(self) -> None:
-        """Move cursor one visual line forward, tracking preferred column."""
+        """Move cursor one visual line forward, tracking the goal column."""
         self._vertical_move(self.bol_to_next_bol)
 
     def move_backward_line(self) -> None:
-        """Move cursor one visual line backward, tracking preferred column."""
+        """Move cursor one visual line backward, tracking the goal column."""
         self._vertical_move(self.bol_to_prev_bol)
 
     def move_forward_page(self) -> None:
@@ -320,6 +332,18 @@ class Layout:
         line += bytes(self.cols - len(line))
 
         return line, col_map
+
+    def column_at(self, bol: Location, cursor: Location) -> int:
+        """Screen column of `cursor` within the visual line beginning at `bol`.
+        Leaves the point unchanged."""
+        off = cursor.distance_after(bol)
+        assert off is not None, "column_at: cursor is not after bol"
+        save = self.doc.get_point()
+        self.doc.set_point(bol)
+        _, col_map = self.format_line()
+        self.doc.set_point(save)
+        # off == len(col_map) shouldn't occur for a bracketed cursor; clamp defensively
+        return col_map[min(off, len(col_map) - 1)] if col_map else 0
 
     @staticmethod
     def offset_for_column(column: int, col_map: list[int]) -> int:

@@ -27,18 +27,20 @@ def test_wrap():
 
 
 def test_preferred_col():
+    """goal_col now lives on Layout, set eagerly by the first vertical move
+    (not by paint) and preserved across many lines of forward/backward
+    movement (it only resets at the start/end-of-document boundary)."""
     doc = document.Document(ALICE_FLOW)
     dpy = display.Display(doc, display.Screen(24, 80))
     doc.move_point(10)
-    dpy.paint()
-    assert dpy.layout.preferred_col == 10
-
     pt = doc.get_point()
+
     while not doc.at_end():
         dpy.layout.move_forward_line()
         dpy.paint()
         assert doc.get_point() != pt
         pt = doc.get_point()
+    assert dpy.layout.goal_col == 10
 
     while not doc.at_start():
         dpy.layout.move_backward_line()

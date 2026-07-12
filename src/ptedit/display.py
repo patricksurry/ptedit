@@ -113,21 +113,18 @@ class Display:
             start_row: int,
             end_row: int,
             mark: Location | None,
-            at_end: bool,
             top_idx: int,
-            original_pt: Location,
+            pt: Location,
             emit: bool = True,
-    ) -> tuple[Cell | None, Location]:
+    ) -> Cell | None:
         """Render ladder rows [start_row, end_row) to the screen.
 
         Extends the ladder as it formats each row (appending the next BoL when
-        not already cached). Returns (cursor_cell, adjusted_pt) where cursor_cell is (row, col) if the
-        cursor falls in [start_row, end_row), else None. adjusted_pt is original_pt
-        possibly adjusted by the deferred pin_preferred_col column fixup.
+        not already cached). Returns cursor_cell, (row, col) if the cursor
+        falls in [start_row, end_row), else None.
 
-        When emit=False, skips all scr.move/put calls — cursor and adjusted_pt
-        are still computed (used by the no-scroll/no-selection fast path).
-        Mutates self.layout.pin_preferred_col / preferred_col like the old paint did.
+        When emit=False, skips all scr.move/put calls — cursor is still
+        computed (used by the no-scroll/no-selection fast path).
         """
         lad = self.layout.bol_ladder
 
@@ -150,7 +147,7 @@ class Display:
         self.doc.set_point(first_loc)
         start_pos = first_loc.position()
 
-        pt_off = original_pt.position() - start_pos
+        pt_off = pt.position() - start_pos
         if mark:
             mark_off = mark.position() - start_pos
         else:
@@ -159,7 +156,6 @@ class Display:
         highlight = mark_off < 0
 
         cursor: Cell | None = None
-        adjusted_pt = original_pt
 
         row = start_row
         while row < end_row:
@@ -169,13 +165,6 @@ class Display:
             toggle_pt = -1
 
             if 0 <= pt_off < delta:
-                # Deferred move to preferred column?
-                if not at_end and self.layout.pin_preferred_col:
-                    assert pt_off == 0, f"panic: pt_off={pt_off}"
-                    pt_off = self.layout.offset_for_column(self.layout.preferred_col, col_map)
-                    adjusted_pt = adjusted_pt.move(pt_off)
-                    if not mark:
-                        mark_off = pt_off
                 col = col_map[pt_off]
                 toggle_pt = col
                 cursor = Cell(row, col)
@@ -208,7 +197,7 @@ class Display:
 
             row += 1
 
-        return cursor, adjusted_pt
+        return cursor
 
     def paint(self, mark: Location | None = None) -> Cell:
         """
@@ -217,7 +206,6 @@ class Display:
         restoring the cursor, and refreshing the screen.
         """
         original_pt = self.doc.get_point()
-        at_end = self.doc.at_end()
 
         # Capture Phase 2 state before find_top changes things.
         edit_keep = self.layout.last_truncate_keep
@@ -234,7 +222,7 @@ class Display:
             # Full redraw: top moved or edit truncation reached/passed top.
             stats.tick('paint.full')
             self.scr.clear()
-            cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
+            cursor = self._render_rows(0, self.rows, mark, top_idx, original_pt)
             if cursor is None:
                 cursor = Cell(0, 0)     # shouldn't happen for a full render with point on screen
 
@@ -245,7 +233,7 @@ class Display:
             # top_changed would be True → classified as full above.
             stats.tick('paint.local_edit')
             K = edit_keep - top_idx
-            cursor, adjusted_pt = self._render_rows(K, self.rows, mark, at_end, top_idx, original_pt)
+            cursor = self._render_rows(K, self.rows, mark, top_idx, original_pt)
             if cursor is None:
                 # Defensive: cursor is in an unchanged row [0, K) — recover from prev_cursor.
                 cursor = self.prev_cursor or Cell(0, 0)
@@ -256,7 +244,7 @@ class Display:
             # highlight delta is a 6502 concern.
             stats.tick('paint.no_scroll_with_selection')
             self.scr.clear()
-            cursor, adjusted_pt = self._render_rows(0, self.rows, mark, at_end, top_idx, original_pt)
+            cursor = self._render_rows(0, self.rows, mark, top_idx, original_pt)
             if cursor is None:
                 cursor = Cell(0, 0)
 
@@ -266,25 +254,15 @@ class Display:
             stats.tick('paint.no_scroll')
             cursor_row = self.layout.line_index(original_pt) - top_idx
             if 0 <= cursor_row < self.rows:
-                cursor, adjusted_pt = self._render_rows(
-                    cursor_row, cursor_row + 1, mark, at_end, top_idx, original_pt, emit=False,
+                cursor = self._render_rows(
+                    cursor_row, cursor_row + 1, mark, top_idx, original_pt, emit=False,
                 )
                 if cursor is None:
                     cursor = self.prev_cursor or Cell(0, 0)
             else:
                 # Shouldn't happen — find_top keeps cursor on screen — but recover.
                 cursor = self.prev_cursor or Cell(0, 0)
-                adjusted_pt = original_pt
-                if self.layout.pin_preferred_col:
-                    self.layout.pin_preferred_col = False
 
-        self.doc.set_point(adjusted_pt)
-
-        if not self.layout.pin_preferred_col:
-            self.layout.preferred_col = cursor[1] if not self.doc.at_end() else 0
-        else:
-            self.layout.pin_preferred_col = False
-
+        self.doc.set_point(original_pt)
         self.prev_cursor = cursor
-
         return cursor
