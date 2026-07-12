@@ -114,6 +114,15 @@ def test_offset_for_column():
     assert layout.Layout.offset_for_column(99, col_map) == 8  # eod
 
 
+def test_locate_cursor():
+    doc = document.Document('abcd\nefgh\n')
+    lay = layout.Layout(doc, cols=8, rows=4)
+    doc.set_point_start()
+    lay.ensure_bracketed(doc.get_point())         # seed the ladder from doc start
+    doc.move_point(7)                             # 'g': line 1, col 2
+    assert lay.locate(doc.get_point()) == (1, 2)
+
+
 def test_change_handler_truncates_at_edit():
     """Ladder entries within cols of the edit are dropped (rule 2: cols-margin)."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')

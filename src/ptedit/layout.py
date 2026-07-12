@@ -333,6 +333,11 @@ class Layout:
 
         return line, col_map
 
+    def locate(self, cursor: Location) -> tuple[int, int]:
+        """(ladder line index, screen column) for `cursor`; brackets it first."""
+        i = self.ensure_bracketed(cursor)
+        return i, self.column_at(self.bol_ladder[i], cursor)
+
     def column_at(self, bol: Location, cursor: Location) -> int:
         """Screen column of `cursor` within the visual line beginning at `bol`.
         Leaves the point unchanged."""

@@ -38,9 +38,6 @@ class Display:
         self.message = ''
         self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
 
-        # Phase 2 redraw-strategy state
-        self.prev_cursor: Cell | None = None  # cursor cell from last frame
-
         self.doc.watch(self.change_handler)
 
     def change_handler(self, edit: Edit) -> None:
@@ -115,20 +112,15 @@ class Display:
             mark: Location | None,
             top_idx: int,
             pt: Location,
-            emit: bool = True,
-    ) -> Cell | None:
+    ) -> None:
         """Render ladder rows [start_row, end_row) to the screen.
 
         Extends the ladder as it formats each row (appending the next BoL when
-        not already cached). Returns cursor_cell, (row, col) if the cursor
-        falls in [start_row, end_row), else None.
-
-        When emit=False, skips all scr.move/put calls — cursor is still
-        computed (used by the no-scroll/no-selection fast path).
+        not already cached).
         """
         lad = self.layout.bol_ladder
 
-        if emit and start_row > 0:
+        if start_row > 0:
             # Partial render (local-edit tail): position the cursor at the
             # first row we re-render; rows above are left as the last frame.
             self.scr.move(start_row, 0)
@@ -155,40 +147,28 @@ class Display:
 
         highlight = mark_off < 0
 
-        cursor: Cell | None = None
-
         row = start_row
         while row < end_row:
             line, col_map = self.layout.format_line()
             delta = len(col_map)
-            toggle_mark = -1
-            toggle_pt = -1
 
-            if 0 <= pt_off < delta:
-                col = col_map[pt_off]
-                toggle_pt = col
-                cursor = Cell(row, col)
-
-            if 0 <= mark_off < delta:
-                # Found the mark?
-                col = col_map[mark_off]
-                toggle_mark = col
+            toggle_pt = col_map[pt_off] if 0 <= pt_off < delta else -1
+            toggle_mark = col_map[mark_off] if 0 <= mark_off < delta else -1
 
             pt_off -= delta
             mark_off -= delta
 
-            if emit:
-                for col, ch in enumerate(line):
-                    if toggle_pt == col:
-                        highlight = not highlight
-                    if toggle_mark == col:
-                        highlight = not highlight
-                    match ch:
-                        case 1: ch = ord('^')
-                        case 2: ch = ord('\\')
-                        case _ if ch < 32: ch = ord(' ')
-                        case _: pass
-                    self.scr.put(ch, highlight)
+            for col, ch in enumerate(line):
+                if toggle_pt == col:
+                    highlight = not highlight
+                if toggle_mark == col:
+                    highlight = not highlight
+                match ch:
+                    case 1: ch = ord('^')
+                    case 2: ch = ord('\\')
+                    case _ if ch < 32: ch = ord(' ')
+                    case _: pass
+                self.scr.put(ch, highlight)
 
             # format_line itself doesn't touch the ladder; we append the BoL it
             # advances to so subsequent rows / frames can index it.
@@ -197,72 +177,36 @@ class Display:
 
             row += 1
 
-        return cursor
-
     def paint(self, mark: Location | None = None) -> Cell:
-        """
-        Paint the buffer content to the screen, returning the cursor position.
-        Leaves point unchanged. The caller is responsible for the status line,
-        restoring the cursor, and refreshing the screen.
-        """
-        original_pt = self.doc.get_point()
+        """Paint the buffer to the screen; returns the cursor cell.
+        Reads the document; the point is saved and restored."""
+        pt = self.doc.get_point()
 
-        # Capture Phase 2 state before find_top changes things.
         edit_keep = self.layout.last_truncate_keep
         self.layout.last_truncate_keep = None
         top_invalidated = self.layout.last_truncate_invalidated_top
         self.layout.last_truncate_invalidated_top = False
 
-        top_changed = self.find_top()   # move point to show at top-left of screen
+        top_changed = self.find_top()
+        top_idx = self.layout.bol_ladder.top
 
-        lad = self.layout.bol_ladder
-        top_idx = lad.top
+        row, col = self.layout.locate(pt)
+        cursor = Cell(row - top_idx, col)
+        assert 0 <= cursor.row < self.rows, "find_top must keep the cursor on screen"
 
         if top_changed or (edit_keep is not None and top_invalidated):
-            # Full redraw: top moved or edit truncation reached/passed top.
             stats.tick('paint.full')
             self.scr.clear()
-            cursor = self._render_rows(0, self.rows, mark, top_idx, original_pt)
-            if cursor is None:
-                cursor = Cell(0, 0)     # shouldn't happen for a full render with point on screen
-
+            self._render_rows(0, self.rows, mark, top_idx, pt)
         elif edit_keep is not None:
-            # Top unchanged, an edit truncated the ladder to edit_keep entries.
-            # Rows [0, K) are byte-stable on screen; only [K, rows) need re-rendering.
-            # Guaranteed 0 < K < rows here: if truncation reached top or above,
-            # top_changed would be True → classified as full above.
             stats.tick('paint.local_edit')
-            K = edit_keep - top_idx
-            cursor = self._render_rows(K, self.rows, mark, top_idx, original_pt)
-            if cursor is None:
-                # Defensive: cursor is in an unchanged row [0, K) — recover from prev_cursor.
-                cursor = self.prev_cursor or Cell(0, 0)
-
-        elif mark is not None and mark.position() != original_pt.position():
-            # Active selection on a stable window: highlight may have changed.
-            # For this Python reference, fall back to full redraw. Cell-granular
-            # highlight delta is a 6502 concern.
+            self._render_rows(edit_keep - top_idx, self.rows, mark, top_idx, pt)
+        elif mark is not None and mark.position() != pt.position():
             stats.tick('paint.no_scroll_with_selection')
             self.scr.clear()
-            cursor = self._render_rows(0, self.rows, mark, top_idx, original_pt)
-            if cursor is None:
-                cursor = Cell(0, 0)
-
+            self._render_rows(0, self.rows, mark, top_idx, pt)
         else:
-            # No top change, no edit, no selection: rows are byte-stable.
-            # Emit ZERO put calls; just compute the cursor cell.
             stats.tick('paint.no_scroll')
-            cursor_row = self.layout.line_index(original_pt) - top_idx
-            if 0 <= cursor_row < self.rows:
-                cursor = self._render_rows(
-                    cursor_row, cursor_row + 1, mark, top_idx, original_pt, emit=False,
-                )
-                if cursor is None:
-                    cursor = self.prev_cursor or Cell(0, 0)
-            else:
-                # Shouldn't happen — find_top keeps cursor on screen — but recover.
-                cursor = self.prev_cursor or Cell(0, 0)
 
-        self.doc.set_point(original_pt)
-        self.prev_cursor = cursor
+        self.doc.set_point(pt)
         return cursor
