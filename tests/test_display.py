@@ -256,3 +256,42 @@ def test_local_edit_renders_tail_only():
     assert 0 < n1 < full, (
         f"local edit should re-render only the tail, got {n1} puts vs {full} full"
     )
+
+
+class GridScreen(display.Screen):
+    """Accumulates a char+highlight grid like memory-mapped video RAM."""
+    def __init__(self, height: int, width: int):
+        super().__init__(height, width)
+        self.clear()
+
+    def clear(self):
+        self.hi = [[False] * self.width for _ in range(self.height)]
+        self.row = self.col = 0
+
+    def move(self, row: int, col: int):
+        self.row, self.col = row, col
+
+    def put(self, ch: int, highlight: bool = False):
+        if self.row < self.height:
+            self.hi[self.row][self.col] = highlight
+        self.col += 1
+        if self.col >= self.width:
+            self.col = 0
+            self.row += 1
+
+    def highlight_count(self) -> int:
+        return sum(sum(row) for row in self.hi)
+
+
+def test_clearing_mark_erases_highlight():
+    """A cleared selection must not leave stale highlight on a stable window."""
+    doc = document.Document('hello world ' * 40)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)
+    mark = doc.get_point()
+    doc.move_point(40)
+    dpy.paint(mark)
+    assert scr.highlight_count() == 40
+    dpy.paint(None)                     # mark cleared; window otherwise stable
+    assert scr.highlight_count() == 0

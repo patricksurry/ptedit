@@ -32,13 +32,6 @@ class Ladder(list[Location]):
             self.top = max(0, self.top - 1)
         super().append(loc)
 
-    def truncate_to(self, count: int) -> None:
-        """Keep the first `count` entries; discard the rest."""
-        assert 0 <= count <= len(self)
-        del self[count:]
-        if self.top >= count:
-            self.top = max(0, count - 1)
-
     def reset(self, anchor: Location) -> None:
         """Discard everything; seed with a single anchor at top."""
         self.clear()
@@ -60,8 +53,7 @@ class Layout:
         self.last_vertical_dest: Location | None = None   # where the last vertical move landed
 
         self.bol_ladder = Ladder()
-        self.last_truncate_keep: int | None = None  # entries kept after last edit truncation
-        self.last_truncate_invalidated_top: bool = False  # True if truncation reached/passed top row
+        self.damage_pos: int | None = None   # lowest doc position whose screen bytes may be stale
 
     # ----- cursor commands: layout-level vertical/line moves -----
     # `bol_to_next_bol` / `bol_to_prev_bol` are no-ops at doc end / start
@@ -121,15 +113,20 @@ class Layout:
         self._vertical_move(self.bol_to_prev_bol, self.rows)
 
     def change_handler(self, edit: Edit) -> None:
-        """Truncate the ladder past entries invalidated by `edit`.
+        """Record screen damage and repair the ladder through `edit`.
 
-        See docs/rendering.md Validity / Remap for the two rules
-        (remappable piece AND more than `cols` chars before edit start).
+        Damage: any on-screen byte at or after `edit_pos - cols` may change
+        (the cols margin covers soft-wrap pull-back, per docs/rendering.md).
+        Ladder: remap entries through the edit; truncate at the first entry
+        that fails either validity rule.
         """
+        edit_pos = edit.get_change_start().position()
+        dmg = max(0, edit_pos - self.cols)
+        self.damage_pos = dmg if self.damage_pos is None else min(self.damage_pos, dmg)
+
         if not self.bol_ladder:
             return
         stats.sample('change_handler.ladder_len_before', float(len(self.bol_ladder)))
-        edit_pos = edit.get_change_start().position()
         keep = 0
         for i, entry in enumerate(self.bol_ladder):
             new_loc = edit.remap_location(entry)
@@ -140,13 +137,14 @@ class Layout:
             if new_loc is not entry:
                 self.bol_ladder[i] = new_loc           # in-place rewrite
             keep += 1
-        original_len = len(self.bol_ladder)
-        old_top = self.bol_ladder.top
-        self.bol_ladder.truncate_to(keep)
+        del self.bol_ladder[keep:]
         stats.sample('change_handler.ladder_len_after', float(len(self.bol_ladder)))
-        if keep < original_len:
-            self.last_truncate_keep = keep
-            self.last_truncate_invalidated_top = (old_top >= keep)
+
+    def take_damage(self) -> int | None:
+        """Read and clear the damage watermark (once per frame)."""
+        d = self.damage_pos
+        self.damage_pos = None
+        return d
 
     def reanchor(self, cursor: Location) -> None:
         """Rebuild the ladder fresh, rooted at the hard BoL at or before `cursor`."""

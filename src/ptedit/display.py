@@ -37,6 +37,7 @@ class Display:
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
         self.message = ''
         self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
+        self.prev_selection: bool = False        # True if last frame painted a selection highlight
 
         self.doc.watch(self.change_handler)
 
@@ -177,15 +178,31 @@ class Display:
 
             row += 1
 
+    def _first_dirty_row(self, damage_pos: int, top_idx: int) -> int:
+        """First screen row whose bytes may differ from the video buffer, given
+        document content at/after `damage_pos` may have changed. Row r is clean
+        iff its line ends at or before damage_pos (i.e. the next BoL's position
+        is <= damage_pos). Returns rows when the damage is entirely below the
+        window (possible when an edit truncated rungs kept past the screen)."""
+        lad = self.layout.bol_ladder
+        dirty = 0
+        for r in range(self.rows):
+            i = top_idx + r + 1
+            if i >= len(lad):
+                break                       # no cached rung below: damage row stands
+            if lad[i].position() <= damage_pos:
+                dirty = r + 1
+            else:
+                break
+        return dirty
+
     def paint(self, mark: Location | None = None) -> Cell:
         """Paint the buffer to the screen; returns the cursor cell.
         Reads the document; the point is saved and restored."""
         pt = self.doc.get_point()
 
-        edit_keep = self.layout.last_truncate_keep
-        self.layout.last_truncate_keep = None
-        top_invalidated = self.layout.last_truncate_invalidated_top
-        self.layout.last_truncate_invalidated_top = False
+        damage_pos = self.layout.take_damage()
+        selection = mark is not None and mark.position() != pt.position()
 
         top_changed = self.find_top()
         top_idx = self.layout.bol_ladder.top
@@ -194,19 +211,23 @@ class Display:
         cursor = Cell(row - top_idx, col)
         assert 0 <= cursor.row < self.rows, "find_top must keep the cursor on screen"
 
-        if top_changed or (edit_keep is not None and top_invalidated):
+        if top_changed or selection or self.prev_selection:
+            first_dirty = 0
+        elif damage_pos is not None:
+            first_dirty = self._first_dirty_row(damage_pos, top_idx)
+        else:
+            first_dirty = self.rows
+
+        if first_dirty == 0:
             stats.tick('paint.full')
             self.scr.clear()
             self._render_rows(0, self.rows, mark, top_idx, pt)
-        elif edit_keep is not None:
+        elif first_dirty < self.rows:
             stats.tick('paint.local_edit')
-            self._render_rows(edit_keep - top_idx, self.rows, mark, top_idx, pt)
-        elif mark is not None and mark.position() != pt.position():
-            stats.tick('paint.no_scroll_with_selection')
-            self.scr.clear()
-            self._render_rows(0, self.rows, mark, top_idx, pt)
+            self._render_rows(first_dirty, self.rows, mark, top_idx, pt)
         else:
             stats.tick('paint.no_scroll')
 
+        self.prev_selection = selection
         self.doc.set_point(pt)
         return cursor

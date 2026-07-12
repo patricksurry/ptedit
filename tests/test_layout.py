@@ -33,15 +33,6 @@ def test_ladder_append_and_iter():
     assert lad[-1] == locs[-1]
 
 
-def test_ladder_truncate():
-    lad = Ladder()
-    locs = _locs(5)
-    for loc in locs:
-        lad.append(loc)
-    lad.truncate_to(2)
-    assert list(lad) == locs[:2]
-
-
 def test_ladder_reset():
     lad = Ladder()
     for loc in _locs(3):
