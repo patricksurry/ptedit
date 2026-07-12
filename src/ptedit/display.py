@@ -62,49 +62,35 @@ class Display:
             self.scr.alert()
             logging.warning(msg)
 
-    def find_top(self) -> bool:
-        """Position the screen with a sticky top: keep last frame's top unless
-        the cursor moved out of the visible window or into the guard zone,
-        per docs/rendering.md. Sets bol_ladder.top and moves point there.
-        Returns True if top changed (this frame's screen anchor differs from
-        last frame's), False if it stayed the same.
-        """
+    def find_top(self) -> tuple[int, bool]:
+        """Choose the screen-row-0 rung with a sticky top per docs/rendering.md.
+        Returns (top index, whether the top changed since last frame)."""
         stats.tick('find_top')
         stats.sample('find_top.ladder_len', float(len(self.layout.bol_ladder)))
         old_top_loc = self.top_loc
         cursor = self.doc.get_point()
-        cur_idx = self.layout.ensure_bracketed(cursor)   # Phase 1: cursor is now in the ladder
-        lad = self.layout.bol_ladder
+        cur_idx = self.layout.ensure_bracketed(cursor)
 
-        # Find last frame's top in the (possibly rebuilt) ladder.
         top_idx: int | None = None
         if self.top_loc is not None:
             top_idx = self.layout.line_index_of_loc(self.top_loc)
 
         if top_idx is not None and 0 <= cur_idx - top_idx < self.rows:
-            # Cursor is on-screen relative to the sticky top.
-            # Clamp the cursor's row-in-window into [guard_rows, rows - guard_rows - 1].
+            # Sticky: clamp the cursor's row into [guard_rows, rows - guard_rows - 1].
             delta = max(self.guard_rows, min(self.rows - self.guard_rows - 1, cur_idx - top_idx))
             top_idx = max(0, cur_idx - delta)
         else:
-            # Cursor off-screen / no prior top / ladder rebuilt → recenter.
             stats.tick('find_top.recenter')
             self.layout.clamp_to_bol()
             for _ in range(self.preferred_row):
                 if self.doc.at_start():
                     break
                 self.layout.bol_to_prev_bol()
-            recentered_top = self.doc.get_point()
-            lad = self.layout.bol_ladder
-            # After clamp_to_bol + bol_to_prev_bol the point is always a ladder
-            # entry (each step follows the ladder or re-anchors around the new
-            # position); the fallback never fires in practice.
-            top_idx = self.layout.line_index(recentered_top)
+            top_idx = self.layout.line_index(self.doc.get_point())
 
-        lad.top = top_idx
-        self.top_loc = lad[top_idx]
-        self.doc.set_point(lad[top_idx])
-        return old_top_loc is None or old_top_loc != self.top_loc
+        top_idx = self.layout.make_room(top_idx, self.rows)
+        self.top_loc = self.layout.bol(top_idx)
+        return top_idx, (old_top_loc is None or old_top_loc != self.top_loc)
 
     def _render_rows(
             self,
@@ -114,51 +100,23 @@ class Display:
             top_idx: int,
             pt: Location,
     ) -> None:
-        """Render ladder rows [start_row, end_row) to the screen.
-
-        Extends the ladder as it formats each row (appending the next BoL when
-        not already cached).
-        """
-        lad = self.layout.bol_ladder
-
+        """Emit ladder rows [start_row, end_row) to the screen, highlighting
+        the [mark, pt) selection. Rows above start_row are assumed byte-stable
+        in the video buffer."""
         if start_row > 0:
-            # Partial render (local-edit tail): position the cursor at the
-            # first row we re-render; rows above are left as the last frame.
             self.scr.move(start_row, 0)
 
-        # Ensure lad[top_idx + start_row] exists. For local_edit the row-K BoL
-        # was truncated; format one line forward from the last surviving entry.
-        while top_idx + start_row >= len(lad):
-            self.doc.set_point(lad[-1])
-            self.layout.format_line()
-            if self.doc.at_end():
-                break
-            lad.append(self.doc.get_point())
-
-        # Set the point at the first row we render, then format_line advances it.
-        first_loc = lad[top_idx + start_row]
-        self.doc.set_point(first_loc)
-        start_pos = first_loc.position()
-
+        start_pos = self.layout.ensure_row(top_idx + start_row).position()
         pt_off = pt.position() - start_pos
-        if mark:
-            mark_off = mark.position() - start_pos
-        else:
-            mark_off = pt_off
-
+        mark_off = mark.position() - start_pos if mark else pt_off
         highlight = mark_off < 0
 
-        row = start_row
-        while row < end_row:
-            line, col_map = self.layout.format_line()
+        for line, col_map in self.layout.render_lines(top_idx + start_row, end_row - start_row):
             delta = len(col_map)
-
             toggle_pt = col_map[pt_off] if 0 <= pt_off < delta else -1
             toggle_mark = col_map[mark_off] if 0 <= mark_off < delta else -1
-
             pt_off -= delta
             mark_off -= delta
-
             for col, ch in enumerate(line):
                 if toggle_pt == col:
                     highlight = not highlight
@@ -171,26 +129,18 @@ class Display:
                     case _: pass
                 self.scr.put(ch, highlight)
 
-            # format_line itself doesn't touch the ladder; we append the BoL it
-            # advances to so subsequent rows / frames can index it.
-            if not self.doc.at_end() and top_idx + row + 1 >= len(lad):
-                lad.append(self.doc.get_point())
-
-            row += 1
-
     def _first_dirty_row(self, damage_pos: int, top_idx: int) -> int:
         """First screen row whose bytes may differ from the video buffer, given
         document content at/after `damage_pos` may have changed. Row r is clean
         iff its line ends at or before damage_pos (i.e. the next BoL's position
         is <= damage_pos). Returns rows when the damage is entirely below the
         window (possible when an edit truncated rungs kept past the screen)."""
-        lad = self.layout.bol_ladder
         dirty = 0
         for r in range(self.rows):
             i = top_idx + r + 1
-            if i >= len(lad):
+            if i >= len(self.layout.bol_ladder):
                 break                       # no cached rung below: damage row stands
-            if lad[i].position() <= damage_pos:
+            if self.layout.bol(i).position() <= damage_pos:
                 dirty = r + 1
             else:
                 break
@@ -204,8 +154,7 @@ class Display:
         damage_pos = self.layout.take_damage()
         selection = mark is not None and mark.position() != pt.position()
 
-        top_changed = self.find_top()
-        top_idx = self.layout.bol_ladder.top
+        top_idx, top_changed = self.find_top()
 
         row, col = self.layout.locate(pt)
         cursor = Cell(row - top_idx, col)

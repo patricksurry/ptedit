@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from collections.abc import Iterator
 
 from .location import Location
 from .document import Document
@@ -11,32 +12,21 @@ hex_digits: list[int] = [ord(c) for c in '0123456789ABCDEF']
 
 
 class Ladder(list[Location]):
-    """BoL marks for the visible region and its neighborhood, per docs/rendering.md.
-
-    The doc specifies a 64-slot ring buffer with first/top/last indices —
-    that's the Forth port's contract. In Python we subclass `list` directly:
-    O(1) indexing (the hot path), with `MAX` enforced manually on `append`
-    so the oldest entry is dropped on overflow. `top` is a plain int index
-    into the live entries. A Forth port should re-derive the wrap-aware
-    indexing from the spec.
-    """
+    """BoL rungs for the visible region and its neighborhood, per docs/rendering.md.
+    Python subclasses `list` (O(1) indexing); MAX is enforced on append by
+    dropping the oldest rung. The `top` index lives with Display's frame
+    state, not here."""
     MAX = 64
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.top: int = 0
 
     def append(self, loc: Location) -> None:
         if len(self) == self.MAX:
             del self[0]
-            self.top = max(0, self.top - 1)
         super().append(loc)
 
     def reset(self, anchor: Location) -> None:
-        """Discard everything; seed with a single anchor at top."""
+        """Discard everything; seed with a single anchor."""
         self.clear()
         super().append(anchor)
-        self.top = 0
 
 
 class Layout:
@@ -162,7 +152,6 @@ class Layout:
         while self.doc.get_point().is_strictly_before(cursor):
             self.format_line()
             self.bol_ladder.append(self.doc.get_point())
-        self.bol_ladder.top = 0
         self.doc.set_point(save_pt)
 
     def _extend_to(self, cursor: Location) -> None:
@@ -214,6 +203,43 @@ class Layout:
             if entry == loc:
                 return i
         return None
+
+    def bol(self, i: int) -> Location:
+        """Read-only rung accessor for Display."""
+        return self.bol_ladder[i]
+
+    def ensure_row(self, i: int) -> Location:
+        """Extend the ladder until entry `i` exists; return that BoL, or the
+        end-of-document location if the document has fewer lines."""
+        lad = self.bol_ladder
+        while i >= len(lad):
+            self.doc.set_point(lad[-1])
+            self.format_line()
+            if self.doc.at_end():
+                return self.doc.get_point()
+            lad.append(self.doc.get_point())
+        return lad[i]
+
+    def render_lines(self, i: int, count: int) -> Iterator[tuple[bytes, list[int]]]:
+        """Yield (line, col_map) for ladder rows [i, i+count), formatting
+        forward and caching each newly reached BoL. Rows at/past the end of
+        the document yield padding lines. The point flows forward; callers
+        that need it preserved must save/restore."""
+        self.doc.set_point(self.ensure_row(i))
+        for k in range(count):
+            line, col_map = self.format_line()
+            if not self.doc.at_end() and i + k + 1 >= len(self.bol_ladder):
+                self.bol_ladder.append(self.doc.get_point())
+            yield line, col_map
+
+    def make_room(self, top_idx: int, rows: int) -> int:
+        """Evict leading rungs so rows [top_idx, top_idx+rows) can be appended
+        without Ladder.append evicting mid-frame; returns the adjusted index."""
+        overflow = top_idx + rows - Ladder.MAX
+        if overflow > 0:
+            del self.bol_ladder[:overflow]
+            top_idx -= overflow
+        return top_idx
 
     def clamp_to_bol(self) -> None:
         """Move cursor to the BoL of its current visual line (no-op at doc start)."""

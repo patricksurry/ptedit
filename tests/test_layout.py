@@ -18,7 +18,6 @@ def test_ladder_empty():
     lad = Ladder()
     assert not lad
     assert len(lad) == 0
-    assert lad.top == 0
 
 
 def test_ladder_append_and_iter():
@@ -40,11 +39,10 @@ def test_ladder_reset():
     new_anchor = _locs(1)[0]
     lad.reset(new_anchor)
     assert list(lad) == [new_anchor]
-    assert lad.top == 0
 
 
 def test_ladder_drops_oldest_past_max():
-    """Past MAX entries, oldest is discarded; top index follows."""
+    """Past MAX entries, the oldest rung is discarded."""
     lad = Ladder()
     locs = _locs(Ladder.MAX + 3)
     for loc in locs:
@@ -112,6 +110,28 @@ def test_locate_cursor():
     lay.ensure_bracketed(doc.get_point())         # seed the ladder from doc start
     doc.move_point(7)                             # 'g': line 1, col 2
     assert lay.locate(doc.get_point()) == (1, 2)
+
+
+def test_render_lines_formats_and_caches():
+    doc = document.Document('aaa\nbbb\nccc\n')
+    lay = layout.Layout(doc, cols=8, rows=4)
+    lay.reanchor(doc.get_point())
+    lines = [bytes(l).rstrip(b'\x00') for l, _ in lay.render_lines(0, 3)]
+    assert lines == [b'aaa\n', b'bbb\n', b'ccc\n']
+    assert len(lay.bol_ladder) == 3           # anchor + BoLs for rows 1 and 2
+
+
+def test_make_room_prevents_mid_paint_eviction():
+    doc = document.Document('x\n' * 200)
+    lay = layout.Layout(doc, cols=16, rows=8)
+    lay.reanchor(doc.get_point())
+    lay.ensure_row(layout.Ladder.MAX - 1)     # fill the ladder to capacity
+    assert len(lay.bol_ladder) == layout.Ladder.MAX
+    target = lay.bol_ladder[60]
+    top = lay.make_room(60, 8)                # 60 + 8 - 64 = 4 rungs over
+    assert top == 56
+    assert lay.bol_ladder[top] is target
+    assert len(lay.bol_ladder) == layout.Ladder.MAX - 4
 
 
 def test_change_handler_truncates_at_edit():
