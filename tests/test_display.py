@@ -209,7 +209,7 @@ def test_bol_to_prev_bol_at_doc_start_is_noop():
 
 def test_change_handler_walks_multi_piece_unlinked_chain():
     """Coverage: an edit that unlinks more than one piece exercises the
-    chain-walk in `Layout.change_handler` (`p = p.next`)."""
+    chain-walk in `Layout.note_change` (`p = p.next`)."""
     doc = document.Document('one\ntwo\nthree\nfour\nfive\n')
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
@@ -265,6 +265,7 @@ class GridScreen(display.Screen):
         self.clear()
 
     def clear(self):
+        self.chars = [[ord(' ')] * self.width for _ in range(self.height)]
         self.hi = [[False] * self.width for _ in range(self.height)]
         self.row = self.col = 0
 
@@ -273,6 +274,7 @@ class GridScreen(display.Screen):
 
     def put(self, ch: int, highlight: bool = False):
         if self.row < self.height:
+            self.chars[self.row][self.col] = ch if 32 <= ch < 127 else ord(' ')
             self.hi[self.row][self.col] = highlight
         self.col += 1
         if self.col >= self.width:
@@ -295,3 +297,32 @@ def test_clearing_mark_erases_highlight():
     assert scr.highlight_count() == 40
     dpy.paint(None)                     # mark cleared; window otherwise stable
     assert scr.highlight_count() == 0
+
+
+def test_undo_screen_matches_fresh_render():
+    """After undo, the accumulated screen must equal a from-scratch render."""
+    text = ('the quick brown fox jumps over the lazy dog. ' * 30)
+
+    def frame_chars(scr):
+        return [''.join(chr(c) for c in row) for row in scr.chars]
+
+    doc = document.Document(text)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)
+    doc.move_point(200)
+    doc.insert('hello world ')
+    dpy.paint(None)
+    for _ in range(5):
+        doc.move_point(1)
+        dpy.paint(None)
+    doc.undo()
+    dpy.paint(None)
+
+    ref_doc = document.Document(doc.get_data())
+    ref_doc.move_point(doc.get_point().position())
+    ref_scr = GridScreen(24, 80)
+    ref_dpy = display.Display(ref_doc, ref_scr)
+    ref_dpy.paint(None)
+
+    assert frame_chars(scr) == frame_chars(ref_scr)

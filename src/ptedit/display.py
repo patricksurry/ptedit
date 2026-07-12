@@ -39,14 +39,17 @@ class Display:
         self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
         self.prev_selection: bool = False        # True if last frame painted a selection highlight
 
-        self.doc.watch(self.change_handler)
+        doc.on_change = self.note_change
 
-    def change_handler(self, edit: Edit) -> None:
-        self.layout.change_handler(edit)
-        # Keep top_loc in sync with any in-place ladder remaps: if top_loc's
-        # piece was the unlinked piece, remap it so find_top can still locate
-        # it in the updated ladder.  If it can't be remapped (deleted middle or
-        # multi-piece unlink), clear it to force a recenter next frame.
+    def note_change(self, edit: Edit | None) -> None:
+        """Document change hook. Forward edits repair the caches incrementally
+        (the typing hot path); anything else resets them — one rule, no
+        staleness reasoning."""
+        if edit is None:
+            self.layout.invalidate()
+            self.top_loc = None
+            return
+        self.layout.note_change(edit)
         if self.top_loc is not None:
             self.top_loc = edit.remap_location(self.top_loc)
 

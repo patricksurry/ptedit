@@ -2,7 +2,6 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Callable
 from .document import Document, MatchMode, whitespace
-from .edit import Edit
 from .location import Location
 from .layout import Layout
 
@@ -21,8 +20,6 @@ class Editor:
         self.layout = layout
         self.notify = notify
 
-        self.doc.watch(self.change_handler)
-
         # state
         self.mark: Location | None = None
         self.clipboard: str = ''
@@ -39,10 +36,8 @@ class Editor:
         # TODO cycle mode action
         self.match_mode: MatchMode = MatchMode.SMART_CASE
 
-    def change_handler(self, edit: Edit) -> None:
-        self.mark = None
-
     def squash(self) -> None:
+        self.mark = None            # locations don't survive chain surgery
         pos = self.doc.get_point().position()
         self.doc.squash()
         self.doc.set_point_start().move_point(pos)
@@ -240,9 +235,11 @@ class Editor:
         self.clipboard = self._clip_line(True)
 
     def undo(self) -> None:
+        self.mark = None            # locations don't survive chain surgery
         self.doc.undo()
 
     def redo(self) -> None:
+        self.mark = None
         self.doc.redo()
 
 

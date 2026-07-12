@@ -36,20 +36,24 @@ P = ParamSpec('P')  # Represents the parameters of the decorated function
 R = TypeVar('R')    # Represents the return type of the decorated function
 
 
+OnChange = Callable[['Edit | None'], None]
+
+
 def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatenate[Document, P], R]:
+    """Wrap a forward edit: notify the change hook with the applied Edit."""
     def wrapped(self: Document, *args: P.args, **kwargs: P.kwargs) -> R:
         retval = method(self, *args, **kwargs)
-        self.notify_watchers()
+        self._notify(self._edit)
         return retval
     return wrapped
 
 
-Watcher = Callable[['Edit'], None]
-
-
 class Document:
     def __init__(self, s: str = '') -> None:
-        self._watchers: list[Watcher] = []
+        # The single change hook: called with the applied Edit after a forward
+        # edit, or None after a wholesale change (undo/redo/squash) meaning
+        # "reset any cached view of the piece chain".
+        self.on_change: OnChange | None = None
 
         # Create sentinel pieces at the ends of the chain
         # These are the only Pieces that are empty
@@ -63,17 +67,14 @@ class Document:
         self._edit = Edit.create(Location(self._end), insert=s)
         self.set_point_start()
 
-    def watch(self, watcher: Watcher) -> None:
-        self._watchers.append(watcher)
-
-    def notify_watchers(self) -> None:
+    def _notify(self, edit: Edit | None) -> None:
         self.dirty = True
-        for watcher in self._watchers:
-            watcher(self._edit)
+        if self.on_change is not None:
+            self.on_change(edit)
 
-    @mutator
     def squash(self) -> None:
         self._reset(self.get_data())
+        self._notify(None)
 
     def at_start(self) -> bool:
         return self._point.is_start()
@@ -270,18 +271,18 @@ class Document:
         # for testing
         return self._edit.prev is not None
 
-    @mutator
     def undo(self) -> Document:
         if self._edit.prev:
             self.set_point(self._edit.undo())
             self._edit = self._edit.prev
+        self._notify(None)
         return self
 
-    @mutator
     def redo(self) -> Document:
         if self._edit.next:
             self._edit = self._edit.next
             self.set_point(self._edit.redo())
+        self._notify(None)
         return self
 
     def __str__(self) -> str:

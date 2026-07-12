@@ -138,7 +138,7 @@ def test_change_handler_truncates_at_edit():
     """Ladder entries within cols of the edit are dropped (rule 2: cols-margin)."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
     lay = layout.Layout(doc, 24, 24, 8)
-    doc.watch(lay.change_handler)
+    doc.on_change = lay.note_change
 
     # Manually populate the ladder with BoL marks at positions 0, 7, 14, 21.
     bols = []
@@ -161,7 +161,7 @@ def test_change_handler_keeps_far_entries():
     """Ladder entries more than `cols` chars before edit survive."""
     doc = document.Document('line 1\nline 2\nline 3\nline 4\nline 5\n')
     lay = layout.Layout(doc, 4, 24)  # cols=4
-    doc.watch(lay.change_handler)
+    doc.on_change = lay.note_change
 
     bols = []
     for off in (0, 7, 14, 21):
@@ -183,7 +183,7 @@ def test_change_handler_drops_entry_at_cols_boundary():
     """An entry exactly `cols` chars before the edit must be truncated."""
     doc = document.Document('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')  # 32 a's
     lay = layout.Layout(doc, 4, 24)  # cols=4
-    doc.watch(lay.change_handler)
+    doc.on_change = lay.note_change
 
     # Build ladder entries at positions 0, 4, 8, 12.
     bols = []

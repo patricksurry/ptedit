@@ -9,7 +9,6 @@ import logging
 
 
 from .document import Document, Location
-from .edit import Edit
 from .editor import Editor
 from .display import Display, Cell
 from .screen import Screen
@@ -71,7 +70,6 @@ class Controller:
 
         # use iso-8859-1 so that str <-> bytes is 1:1
         self.doc = Document(open(fname, encoding='iso-8859-1').read())
-        self.doc.watch(self.change_handler)
         self.dpy = Display(self.doc, scr)
         self.ed = Editor(
             self.doc,
@@ -190,6 +188,8 @@ class Controller:
                 key = self.getch()
                 logging.info(f'key ${key:02x}')
                 self.dispatch(key)
+                if self.doc.dirty:
+                    self.autosave()
             except KeyboardInterrupt:
                 self.quit()
 
@@ -208,9 +208,6 @@ class Controller:
             self.change_count = 0
         if self.change_count == 0 and self.doc.dirty:
             self.save('~')
-
-    def change_handler(self, edit: Edit) -> None:
-        self.autosave()
 
     def perftest(self, scenario: str = 'insert', max_time: float = 1.0) -> str:
         runners = {

@@ -102,7 +102,7 @@ class Layout:
         """Move cursor `rows` visual lines backward."""
         self._vertical_move(self.bol_to_prev_bol, self.rows)
 
-    def change_handler(self, edit: Edit) -> None:
+    def note_change(self, edit: Edit) -> None:
         """Record screen damage and repair the ladder through `edit`.
 
         Damage: any on-screen byte at or after `edit_pos - cols` may change
@@ -129,6 +129,12 @@ class Layout:
             keep += 1
         del self.bol_ladder[keep:]
         stats.sample('change_handler.ladder_len_after', float(len(self.bol_ladder)))
+
+    def invalidate(self) -> None:
+        """Wholesale cache reset (undo/redo/squash): the next paint re-anchors."""
+        self.bol_ladder.clear()
+        self.damage_pos = None
+        self.last_vertical_dest = None
 
     def take_damage(self) -> int | None:
         """Read and clear the damage watermark (once per frame)."""

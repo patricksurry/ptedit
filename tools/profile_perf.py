@@ -33,7 +33,7 @@ def main(scenario: str = "up_from_end") -> None:
     lp.add_function(Layout.bol_to_prev_bol)
     lp.add_function(Layout.reanchor)
     lp.add_function(Layout._extend_to)
-    lp.add_function(Layout.change_handler)
+    lp.add_function(Layout.note_change)
     lp.add_function(Layout.format_line)
 
     wrapped = lp(ctrl.perftest)
