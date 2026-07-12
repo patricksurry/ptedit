@@ -31,6 +31,36 @@ The renderer should:
   duplicates of document data.
 - Use no dynamic allocation.
 
+## Cast
+
+Two classes split the rendering work (see the README for the full
+MVC picture):
+
+```
+  Document ...... piece chain + point (the cursor Location)
+     |  on_change(edit | None)         ^ commands move the point
+     v                                 |
+  Layout ........ ladder cache of visual-line starts; format_line
+     |            (doc chars -> screen bytes); line/page moves
+     v
+  Display ....... find_top (scrolling) + paint (redraw) -> Screen
+```
+
+Terms used throughout:
+
+- **visual line / BoL**: a line as displayed — ended by a hard
+  `\n` or a soft wrap at `cols`; BoL is its beginning-of-line
+  document position.
+- **ladder**: the cached BoL marks near the screen (next section).
+- **paint**: `Display`'s once-per-frame entry point; decides what
+  to redraw and emits it.
+- **forward edit**: insert/delete/replace — as opposed to undo,
+  redo, and squash, which rewire the piece chain wholesale.
+- **damage** (`damage_pos`): the lowest document position whose
+  on-screen bytes may be stale (Phase 2).
+- **reanchor**: rebuild the ladder from the nearest hard newline
+  before the cursor (Phase 1).
+
 ## Invariants
 
 The renderer is organized around five invariants; every section
