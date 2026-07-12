@@ -299,8 +299,9 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 def test_locate_cursor():
     doc = document.Document('abcd\nefgh\n')
     lay = layout.Layout(doc, cols=8, rows=4)
+    lay.ensure_bracketed(doc.get_point())        # root the ladder at doc start
     doc.move_point(7)                            # 'g': line 1, col 2
-    assert lay.locate(doc.get_point()) == (1, 2)
+    assert lay.locate(doc.get_point()) == (1, 2)  # ladder index, not absolute line
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
