@@ -150,12 +150,17 @@ def test_vertical_move_at_start_clamps_to_bol():
 
 
 def test_vertical_move_from_doc_end_without_trailing_newline():
-    """Parity guard: a cursor at doc end targets column 0 (old renderer rule)."""
+    """Parity guard: a cursor at doc end targets column 0 (old renderer rule).
+
+    Without a trailing newline, reanchor's walk appends a ladder rung exactly
+    at doc end, so the EOD cursor brackets to its own pseudo-line and one
+    bol_to_prev_bol lands on the last real line's BoL (verified against the
+    pre-refactor pipeline)."""
     doc = document.Document('abcdefgh\nabcd')
     lay = layout.Layout(doc, cols=16, rows=8)
     doc.set_point_end()                         # EOD marker at col 4 of line 1
     lay.move_backward_line()
-    assert doc.get_point().position() == 0      # line 0, col 0
+    assert doc.get_point().position() == 9      # BoL of the 'abcd' line
 ```
 
 (Match the file's existing import style — it already imports `document` and
