@@ -31,6 +31,25 @@ The renderer should:
   duplicates of document data.
 - Use no dynamic allocation.
 
+## Invariants
+
+The renderer is organized around five invariants; every section
+below is a mechanism serving one of them.
+
+1. Commands complete themselves — cursor motion (including the
+   goal column of vertical moves) is resolved at command time,
+   never fixed up during a paint.
+2. `paint` is read-only: it saves and restores the point and
+   mutates nothing outside the screen and its own frame state.
+3. `Layout` is the ladder's sole owner; `Display` reaches the
+   cache only through `bol` / `ensure_row` / `render_lines` /
+   `make_room`.
+4. Screen damage is a single document position (`damage_pos`);
+   paint reduces every redraw decision to one first-dirty row.
+5. Cache repair is incremental only for forward edits; undo, redo,
+   and squash invalidate wholesale (one reanchor beats reasoning
+   about remapping through chain surgery).
+
 ## Ladder State
 
 The renderer maintains a **ladder** of BoL marks — one per visual

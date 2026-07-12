@@ -121,14 +121,23 @@ The split keeps each concern testable in isolation: the model has no
 idea a screen exists, `Layout` knows columns and rows but not curses,
 `Display` paints into a `Screen` that is mocked in tests, and the
 `Editor` talks to `Display` only through a `notify` callback.
-`Document.on_change` is a single hook consumed by `Display`: called
-with the applied `Edit` after a forward edit (so caches can remap
-incrementally on the typing hot path), or with `None` after undo,
-redo, or squash (so caches reset wholesale rather than reasoning
-about remapping through chain surgery). Vertical cursor moves
-(`Layout.move_forward_line`/`move_backward_line`/`move_forward_page`/
-`move_backward_page`) land on their goal column at command time —
-`Display.paint` never adjusts cursor position, only reads it.
+
+Five invariants pin the layering (see `docs/rendering.md` for the
+rendering side):
+
+1. **Commands complete themselves.** After a key's action runs, the
+   point is final — vertical moves land on their goal column at
+   command time; nothing is deferred to the next paint.
+2. **`paint` is read-only.** It saves the point on entry, restores it
+   before returning, and never mutates model or movement state.
+3. **`Layout` is the ladder's only writer.** `Display` consumes the
+   BoL cache through accessors and never appends or truncates it.
+4. **Screen damage is one number** — the lowest document position
+   whose on-screen bytes may be stale; paint turns it into a single
+   first-dirty row.
+5. **One change hook.** `Document.on_change` is consumed by `Display`
+   alone: forward edits remap caches incrementally (the typing hot
+   path); undo, redo, and squash reset them wholesale.
 
 ## Repository layout
 
