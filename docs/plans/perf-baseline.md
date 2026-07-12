@@ -253,7 +253,7 @@ The growth is the doc's design surface: `Ladder` + Phase 1 (`reanchor`,
 with guard-zone scrolling and the four Phase 2 redraw cases (full /
 scroll / local-edit tail / no-scroll skip) in Display.
 
-## MVC cleanup (2026-07-12 plan)
+## MVC cleanup (docs/plans/2026-07-11-mvc-cleanup.md)
 
 Captured at `6c7921c` against `tests/alice1flow.asc`, mock-Screen path,
 same machine/session as the baseline column (3 back-to-back runs each,

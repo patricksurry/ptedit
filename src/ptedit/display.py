@@ -39,6 +39,8 @@ class Display:
         self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
         self.prev_selection: bool = False        # True if last frame painted a selection highlight
 
+        # Last assignment wins: a second Display on the same doc would steal
+        # this hook. Single-consumer by design (one Display per Document).
         doc.on_change = self.note_change
 
     def note_change(self, edit: Edit | None) -> None:

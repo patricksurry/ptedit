@@ -258,6 +258,45 @@ def test_local_edit_renders_tail_only():
     )
 
 
+def test_first_dirty_row_boundaries():
+    """Direct unit test of Display._first_dirty_row, covering its four
+    branches. All damage positions are derived from the ladder's own rungs
+    (dpy.layout.bol(i).position()) rather than hardcoded offsets, so the
+    test stays valid if the document/window shape changes."""
+    doc = document.Document('aa\n' * 40)
+    dpy = display.Display(doc, display.Screen(6, 8))   # rows=5, cols=8
+    dpy.paint()                                          # populate the ladder
+
+    lay = dpy.layout
+    top_idx = lay.line_index_of_loc(dpy.top_loc)
+    assert top_idx is not None
+    # paint() caches one rung past the bottom of the window (rows+1 rungs).
+    assert len(lay.bol_ladder) >= top_idx + dpy.rows + 1
+
+    # (a) damage at/before the window's top row: no row verifies clean -> 0.
+    damage_at_top = lay.bol(top_idx).position()
+    assert dpy._first_dirty_row(damage_at_top, top_idx) == 0
+
+    # (b) damage exactly at a mid-window row boundary: rows before it are
+    # clean, the row starting at the damage position is the first dirty one.
+    mid_r = dpy.rows // 2
+    damage_mid = lay.bol(top_idx + mid_r).position()
+    assert dpy._first_dirty_row(damage_mid, top_idx) == mid_r
+
+    # (c) damage entirely below the window, with a cached rung reaching past
+    # the screen: every row verifies clean -> `rows` (no redraw needed).
+    damage_below = lay.bol(top_idx + dpy.rows).position()
+    assert dpy._first_dirty_row(damage_below, top_idx) == dpy.rows
+
+    # (d) same "damage below" position, but the ladder no longer has rungs
+    # cached that far down (e.g. an edit truncated them): conservative --
+    # dirty stands at the last row that could actually be verified against
+    # a cached rung, rather than optimistically reporting `rows`.
+    truncated_len = top_idx + 3
+    del lay.bol_ladder[truncated_len:]
+    assert dpy._first_dirty_row(damage_below, top_idx) == truncated_len - top_idx - 1
+
+
 class GridScreen(display.Screen):
     """Accumulates a char+highlight grid like memory-mapped video RAM."""
     def __init__(self, height: int, width: int):
