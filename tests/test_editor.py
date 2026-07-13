@@ -55,3 +55,18 @@ def test_isearch_keys_route_to_search_not_document(tmp_path):
     assert ctrl.doc.get_data() == 'hello world\n'         # nothing inserted
     ctrl.dispatch(127)                                    # isearch backspace
     assert ctrl.ed.isearch_text == 'worl'
+
+
+def test_editor_delegates_line_and_page_moves_to_layout():
+    from ptedit import editor as editor_mod
+    doc = document.Document('abcdef\nghijkl\nmnopqr\n')
+    dpy = display.Display(doc, display.Screen(24, 16))
+    ed = editor_mod.Editor(doc, dpy.layout, lambda msg, warn=False: None)
+    # each delegation is the very same bound method object as Layout's
+    for name in ('move_start_line', 'move_end_line', 'move_forward_line',
+                 'move_backward_line', 'move_forward_page', 'move_backward_page'):
+        assert getattr(ed, name).__func__ is getattr(dpy.layout, name).__func__
+    # and it actually moves the point through Layout
+    doc.set_point_start()
+    ed.move_forward_line()
+    assert doc.get_point().position() == 7        # BoL of line 1

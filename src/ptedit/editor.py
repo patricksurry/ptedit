@@ -36,6 +36,16 @@ class Editor:
         # TODO cycle mode action
         self.match_mode: MatchMode = MatchMode.SMART_CASE
 
+        # Facade: line/page motion is a buffer command, exposed under `ed`.
+        # The mechanism (ladder, goal column) stays in Layout — this delegates,
+        # it does not relocate.
+        self.move_start_line = layout.move_start_line
+        self.move_end_line = layout.move_end_line
+        self.move_forward_line = layout.move_forward_line
+        self.move_backward_line = layout.move_backward_line
+        self.move_forward_page = layout.move_forward_page
+        self.move_backward_page = layout.move_backward_page
+
     def squash(self) -> None:
         self.mark = None            # locations don't survive chain surgery
         pos = self.doc.get_point().position()
