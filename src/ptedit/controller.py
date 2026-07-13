@@ -219,10 +219,11 @@ class Controller:
             if self.stack[-1].name is KeyMode.HELP:
                 self.dpy.show_overlay(self._help_lines())
                 cursor = Cell(0, 0)
+                status = ' HELP — any key to dismiss'
             else:
                 cursor = self.dpy.paint(self.ed.mark)
+                status = self.status_message(cursor)
             self.dpy.scr.move(self.dpy.rows, 0)
-            status = self.status_message(cursor)
             status = (status[:self.dpy.cols] if len(status) >= self.dpy.cols
                       else status + ' ' * (self.dpy.cols - len(status)))
             self.dpy.scr.puts(status, highlight=True)
@@ -309,6 +310,7 @@ class Controller:
 
     def _register(self, fn: Callable[[], None], name: str | None = None) -> str:
         name = name or fn.__name__.replace('_', '-')
+        assert name not in self.commands, name    # two callables kebab-casing to the same name would silently shadow
         self.commands[name] = fn
         return name
 
@@ -344,12 +346,26 @@ class Controller:
         self._push(KeyMode.HELP)
 
     def _help_lines(self) -> list[str]:
-        out: list[str] = []
+        """Lay each mode's bindings out as one or more columns, packed
+        side by side, so all three modes fit within dpy.rows total lines.
+        Sized from dpy.rows/dpy.cols (not hardcoded), so it adapts to the
+        actual display: a mode whose binding count overflows dpy.rows wraps
+        into extra sub-columns instead of running off the bottom."""
+        columns: list[list[str]] = []
         for km in (KeyMode.NORMAL, KeyMode.META, KeyMode.ISEARCH):
             mode = self.modes[km]
-            out.append(f'-- {km.name} --')
-            for key in sorted(mode.bindings):
-                out.append(f'  {keyname(key):<8} {mode.bindings[key]}')
+            entries = [f'{keyname(key):<8}{mode.bindings[key]}' for key in sorted(mode.bindings)]
+            body = [f'-- {km.name} --'] + entries
+            for i in range(0, len(body), self.dpy.rows):
+                columns.append(body[i:i + self.dpy.rows])
+
+        col_widths = [max(len(e) for e in col) for col in columns]
+        height = max(len(col) for col in columns)
+        out = []
+        for r in range(height):
+            cells = [(col[r] if r < len(col) else '').ljust(w)
+                     for col, w in zip(columns, col_widths)]
+            out.append(' '.join(cells).rstrip()[:self.dpy.cols])
         return out
 
     def _chord_for(self, command_name: str) -> str | None:

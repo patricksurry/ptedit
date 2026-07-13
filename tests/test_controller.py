@@ -1,5 +1,7 @@
 import curses
 
+import pytest
+
 from ptedit import controller
 
 
@@ -23,6 +25,14 @@ def _ctrl(tmp_path, text='hello world\n'):
     f = tmp_path / 't.txt'
     f.write_text(text)
     return controller.Controller(str(f), Screen(24, 80))
+
+
+def test_register_duplicate_name_raises(tmp_path):
+    """Two callables that kebab-case to the same name must fail loudly at
+    registration rather than one silently shadowing the other."""
+    c = _ctrl(tmp_path)
+    with pytest.raises(AssertionError):
+        c._register(c.save)
 
 
 def test_registry_covers_every_binding(tmp_path):
@@ -89,6 +99,25 @@ def test_help_shows_and_dismisses(tmp_path):
     c.dispatch(ord('x'))                              # any key dismisses
     assert c.stack[-1].name is controller.KeyMode.NORMAL
     assert c.doc.get_data() == 'hello world\n'        # dismiss key not inserted
+
+
+def test_help_lines_fit_screen_with_all_three_modes(tmp_path):
+    """A 24x80 screen has only dpy.rows text rows, but 47 single-column
+    lines used to be needed for all bindings — META/ISEARCH (including
+    save/quit/describe-bindings) fell off the bottom. The multi-column
+    layout must fit everything within dpy.rows, each line <= dpy.cols,
+    with commands from all three modes still present."""
+    c = _ctrl(tmp_path)
+    lines = c._help_lines()
+    assert len(lines) <= c.dpy.rows
+    assert all(len(ln) <= c.dpy.cols for ln in lines)
+
+    rendered = lines[:c.dpy.rows]
+    blob = '\n'.join(rendered)
+    assert 'move-forward-char' in blob      # NORMAL
+    assert 'save' in blob                   # META
+    assert 'describe-bindings' in blob      # META (the '?' help key itself)
+    assert 'isearch-forward' in blob        # ISEARCH
 
 
 def test_unbound_error_names_help_chord(tmp_path):

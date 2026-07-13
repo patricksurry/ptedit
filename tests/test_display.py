@@ -397,3 +397,28 @@ def test_show_overlay_preserves_status_row():
     dpy.show_overlay(['HELP LINE ONE', 'HELP LINE TWO'])
     assert ''.join(chr(c) for c in scr.chars[0]).startswith('HELP LINE ONE')
     assert scr.chars[dpy.rows][0] == ord('#')        # status row untouched
+
+
+def test_overlay_dismiss_forces_full_repaint():
+    """REGRESSION: dismissing the HELP overlay must not leave stale overlay
+    text on screen. show_overlay() writes straight to the screen without any
+    paint-side damage; if paint() doesn't know the text region was clobbered,
+    the next no-scroll paint (no top change, no selection, no doc edit) emits
+    zero cells and the overlay is frozen on screen underneath the live buffer.
+    """
+    doc = document.Document('body text line\n' * 30)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)                                    # establish the buffer on screen
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('body text line')
+
+    dpy.show_overlay(['HELP OVERLAY LINE'])
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('HELP OVERLAY LINE')
+
+    # Dismiss: repaint with no scroll, no selection, no document edit —
+    # exactly the no-scroll fast path that used to emit nothing.
+    dpy.paint(None)
+    row0 = ''.join(chr(c) for c in scr.chars[0])
+    assert row0.startswith('body text line'), (
+        f"row 0 still shows stale overlay content: {row0!r}"
+    )
