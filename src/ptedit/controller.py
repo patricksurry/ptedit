@@ -42,6 +42,26 @@ def ctrl(c: str) -> int:
     return ord(c[0]) & 0b11111
 
 
+# Codes with a nicer label than the raw control-chord / character.
+_KEYNAMES: dict[int, str] = {
+    27: 'Esc', 32: 'Space', 127: 'Del',
+    curses.KEY_LEFT: 'Left', curses.KEY_RIGHT: 'Right',
+    curses.KEY_UP: 'Up', curses.KEY_DOWN: 'Down',
+    curses.KEY_ENTER: 'Enter', curses.KEY_BACKSPACE: 'Bksp',
+}
+
+
+def keyname(code: int) -> str:
+    """Human-readable label for a key code, for help and error messages."""
+    if code in _KEYNAMES:
+        return _KEYNAMES[code]
+    if 0 <= code < 32:
+        return 'C-' + chr(code | 0x40)      # 9 -> 'C-I'
+    if 32 < code < 127:
+        return chr(code)
+    return f'<{code}>'
+
+
 ActionFn = Callable[[], None]
 Action = KeyMode | int | ActionFn
 Actionable = None | Action | list[Action]
