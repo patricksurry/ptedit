@@ -38,31 +38,29 @@ record/replay. See *Deferred* below.
 
 ## Design
 
-### 1. Command & registry
+### 1. Command registry
+
+A command is just a named zero-arg callable — no wrapper type. The registry is:
 
 ```python
-@dataclass(frozen=True)
-class Command:
-    name: str                       # 'move-forward-char'
-    run: Callable[[], None]         # uniform zero-arg callable
-    help: str = ''
+self.commands: dict[str, Callable[[], None]]     # 'move-forward-char' -> callable
 ```
 
-The Controller builds a single registry `self.commands: dict[str, Command]` —
-the "dictionary" of words. A helper registers a callable, defaulting the name
-from the function's `__name__` (kebab-cased):
+The descriptive name *is* the documentation (Emacs-style), so no separate help
+string is needed — the name → callable dict is also the exact Forth
+name → execution-token shape. A small helper registers a callable, defaulting
+the name from the function's `__name__` (kebab-cased):
 
 ```python
-def _register(self, fn: Callable[[], None], name: str | None = None, help: str = '') -> str:
+def _register(self, fn: Callable[[], None], name: str | None = None) -> str:
     name = name or fn.__name__.replace('_', '-')
-    self.commands[name] = Command(name, fn, help)
+    self.commands[name] = fn
     return name
 ```
 
 `ed.move_forward_char` auto-registers as `move-forward-char`. Explicit names are
 supplied only for closures (`insert-tab`, `enter-meta`, `search-forward`) or
-when a nicer name than the method is wanted. `help` is optional; the name alone
-documents most commands.
+when a nicer name than the method is wanted.
 
 **Two namespaces, principled split** (enabled by the facade, §4):
 
@@ -84,26 +82,26 @@ Modes are a small, closed, structural set → referenced by the existing
 class Mode:
     name: KeyMode
     bindings: dict[int, str]                 # key code -> command name (pure data, YAML-ready)
-    default: Callable[[int], bool]           # unbound-key strategy; returns handled?
+    on_unbound: Callable[[int], bool]        # strategy for a key with no binding; returns handled?
     transient: bool = False                  # prefix mode: pop after a single dispatch
 ```
 
-`default` is the single, required per-mode strategy for a key with no explicit
-binding — it subsumes what were three optional fields (`on_text`, `on_miss`,
-`retry_in`). It returns **handled?**: `True` = key consumed; `False` = "not
-mine — pop this mode and re-dispatch the key beneath it."
+`on_unbound` is the single, required per-mode strategy for a key with no
+explicit binding — it subsumes what were three optional fields (`on_text`,
+`on_miss`, `retry_in`). It returns **handled?**: `True` = key consumed;
+`False` = "not mine — pop this mode and re-dispatch the key beneath it."
 
 The three modes:
 
-| Mode | `default(key)` | `transient` |
-|------|----------------|-------------|
+| Mode | `on_unbound(key)` | `transient` |
+|------|-------------------|-------------|
 | `NORMAL`  | printable → `ed.insert(key)` → `True`; else beep → `True` (base; never declines) | `False` |
 | `ISEARCH` | printable → `ed.isearch_insert(chr(key))` → `True`; else `ed.isearch_exit()` → `False` | `False` |
 | `META`    | beep → `True` (all real keys are bound) | `True` |
 
-So the old `'fallback'` becomes "`default` returns `False`" and the old
+So the old `'fallback'` becomes "`on_unbound` returns `False`" and the old
 `'after'` becomes `transient=True`. Two knobs remain, but they are two genuinely
-distinct concepts — **key resolution** (`default`) and **mode lifetime**
+distinct concepts — **key resolution** (`on_unbound`) and **mode lifetime**
 (`transient`) — each exercised by every mode, rather than three optionals each
 firing in one mode.
 
@@ -119,26 +117,29 @@ the honest model for prefix and minor modes if any are added later. The push
 helper resolves the enum: `self._push(m: KeyMode)` does
 `self.stack.append(self.modes[m])`.
 
-"Beep" throughout means the existing user-alert path — `self.dpy.show_message(
-f'No action for ${key:02x} in {mode.name.name}', warn=True)` — not a new
-mechanism.
+"Beep" throughout means the existing user-alert path — a `show_message(...,
+warn=True)` that also names how to get help, e.g. `No action for $1b in NORMAL
+— Esc ? for help`. The help hint is derived, not hardcoded: the Controller
+reverse-looks-up the key(s) bound to `describe-bindings` (formatted via
+`keyname`, §5) so the message stays correct if the help binding changes. Not a
+new mechanism otherwise.
 
 ```python
 def dispatch(self, key: int) -> None:
     mode = self.stack[-1]
     name = mode.bindings.get(key)
     if name:
-        self.commands[name].run()
-    elif not mode.default(key):              # default declined -> pop and re-dispatch below
+        self.commands[name]()
+    elif not mode.on_unbound(key):           # declined -> pop and re-dispatch below
         self.stack.pop()
         return self.dispatch(key)
     if mode.transient and self.stack[-1] is mode:
         self.stack.pop()
 ```
 
-Termination: a declining `default` returns `False` only from a pushed mode
-(ISEARCH); `NORMAL`'s default never declines, so the recursion pops at most to
-the base. Bounded by stack depth.
+Termination: a declining `on_unbound` returns `False` only from a pushed mode
+(ISEARCH); `NORMAL`'s `on_unbound` never declines, so the recursion pops at most
+to the base. Bounded by stack depth.
 
 Mode changes are ordinary commands whose closures manipulate the stack via
 Controller helpers `self._push(mode)` / `self._pop()`:
@@ -177,16 +178,20 @@ and are unaffected.
 
 ### 5. Help screen (Python-only, derived)
 
-Because names/help live in the registry and bindings are `key → name`, help is
+Because command names are self-describing and bindings are `key → name`, help is
 pure formatting. A `describe-bindings` command (bound to `Esc ?`) walks each
-mode's `bindings` and renders `keyname → command-name — help` lines.
+mode's `bindings` and renders `keyname → command-name` lines.
 
 One new View primitive: `Display.show_overlay(lines: list[str]) -> None` paints a
-scroll of text over the buffer; the Controller enters a transient HELP mode that
-any key pops (returning to a normal repaint). The whole help path is cleanly
-separable — a 6502 port omits it — and it is the same seam where a future
-`--keymap file.yaml` plugs in (load → validate against the registry → replace
-`bindings`).
+scroll of text over the text region only (§ status bar preserved); the Controller
+enters a transient HELP mode that any key pops (returning to a normal repaint).
+The whole help path is cleanly separable — a 6502 port omits it — and it is the
+same seam where a future `--keymap file.yaml` plugs in (load → validate against
+the registry → replace `bindings`).
+
+The overlay covers only the text region (rows `0 .. rows-1`); the status bar on
+the bottom row is left untouched, so `describe-bindings` reads as a normal
+transient view rather than a full-screen takeover.
 
 Key-code → display-name formatting (e.g. `9 → "C-I"`, `27 → "Esc"`,
 `curses.KEY_LEFT → "Left"`) lives in a small `keyname(code) -> str` helper.
@@ -248,12 +253,19 @@ what it does today, including:
 
 ## Resolved design decisions
 
+- Commands are a plain `dict[str, Callable[[], None]]` — **no `Command`
+  wrapper, no help string**; the descriptive name is the documentation (and the
+  Forth name → xt shape).
 - Command references are **strings** (open vocabulary; config/help/Forth);
   mode references are the **`KeyMode` enum** (small closed set; typo-safe).
-- The unbound-key strategy is a single required `default(key) -> bool`
+- The unbound-key strategy is a single required field named **`on_unbound`**
+  (not `default`, which is overloaded in Python), typed `(int) -> bool`
   (**handled?**), not three optional fields; `Disp` enum rejected — a two-value
   result is a bool.
 - Mode lifetime is a **stack** with a `transient` pop-after-one flag, not named
   retry/after targets.
 - **No compound-action type**; compounds are closures over other commands.
 - Facade **delegates**, does not relocate, Layout's line/page methods.
+- The "no action" error **names the live help binding** (derived, not
+  hardcoded).
+- The help overlay **preserves the status bar** — text region only.
