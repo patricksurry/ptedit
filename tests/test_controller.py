@@ -119,6 +119,44 @@ def test_help_lines_fit_screen_with_all_three_modes(tmp_path):
     assert 'describe-bindings' in blob      # META (the '?' help key itself)
     assert 'isearch-forward' in blob        # ISEARCH
 
+    # nothing overflowed, so no "-- N more --" indicator line should appear
+    assert not any('more' in ln for ln in lines)
+
+
+def test_help_lines_no_overflow_indicator_at_standard_size(tmp_path):
+    c = _ctrl(tmp_path)
+    lines = c._help_lines()
+    assert all(len(ln) <= 80 for ln in lines)
+    assert len(lines) <= 23
+    blob = '\n'.join(lines)
+    assert 'move-forward-char' in blob
+    assert 'save' in blob
+    assert 'describe-bindings' in blob
+    assert 'isearch-forward' in blob
+
+
+def test_help_lines_never_truncates_content_on_narrow_screen(tmp_path):
+    """A terminal narrower than the packed width used to get its rightmost
+    column silently cut mid-text every row. Now the column count adapts so
+    every line fits, and anything that can't fit is signalled via a trailing
+    overflow indicator rather than dropped silently."""
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    c = controller.Controller(str(f), Screen(24, 20))
+    lines = c._help_lines()
+    assert all(len(ln) <= 20 for ln in lines)
+    assert len(lines) <= 23
+    assert 'more' in lines[-1]
+
+
+def test_help_lines_fit_moderately_narrow_screen(tmp_path):
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    c = controller.Controller(str(f), Screen(24, 40))
+    lines = c._help_lines()
+    assert all(len(ln) <= 40 for ln in lines)
+    assert len(lines) <= 23
+
 
 def test_unbound_error_names_help_chord(tmp_path):
     c = _ctrl(tmp_path)

@@ -346,27 +346,70 @@ class Controller:
         self._push(KeyMode.HELP)
 
     def _help_lines(self) -> list[str]:
-        """Lay each mode's bindings out as one or more columns, packed
-        side by side, so all three modes fit within dpy.rows total lines.
-        Sized from dpy.rows/dpy.cols (not hardcoded), so it adapts to the
-        actual display: a mode whose binding count overflows dpy.rows wraps
-        into extra sub-columns instead of running off the bottom."""
-        columns: list[list[str]] = []
+        """Lay bindings out as columns, one group per mode (further chunked
+        into sub-columns if a mode's own body overflows dpy.rows), each
+        column sized to its own longest entry — this is the dense packing
+        that fits all three modes in exactly 80x24. If that dense packing
+        would exceed dpy.cols (a narrower terminal, or an entry that grew a
+        char), fall back to `_help_lines_safe`, which guarantees both axes
+        fit by construction rather than by truncating content."""
+        mode_columns: list[list[str]] = []
         for km in (KeyMode.NORMAL, KeyMode.META, KeyMode.ISEARCH):
             mode = self.modes[km]
             entries = [f'{keyname(key):<8}{mode.bindings[key]}' for key in sorted(mode.bindings)]
             body = [f'-- {km.name} --'] + entries
             for i in range(0, len(body), self.dpy.rows):
-                columns.append(body[i:i + self.dpy.rows])
+                mode_columns.append(body[i:i + self.dpy.rows])
 
-        col_widths = [max(len(e) for e in col) for col in columns]
-        height = max(len(col) for col in columns)
-        out = []
-        for r in range(height):
-            cells = [(col[r] if r < len(col) else '').ljust(w)
-                     for col, w in zip(columns, col_widths)]
-            out.append(' '.join(cells).rstrip()[:self.dpy.cols])
-        return out
+        col_widths = [max(len(e) for e in col) for col in mode_columns]
+        native_width = sum(col_widths) + len(col_widths) - 1     # single-space gutters
+        if mode_columns and native_width <= self.dpy.cols:
+            height = max(len(col) for col in mode_columns)
+            return [
+                ' '.join((col[r] if r < len(col) else '').ljust(w)
+                         for col, w in zip(mode_columns, col_widths)).rstrip()
+                for r in range(height)
+            ]
+
+        return self._help_lines_safe(
+            [item for col in mode_columns for item in col])
+
+    def _help_lines_safe(self, items: list[str]) -> list[str]:
+        """Fallback for when the dense per-mode packing in `_help_lines`
+        doesn't fit dpy.cols: a single uniform column-major grid sized so
+        ncols * col_width <= dpy.cols and ncols * dpy.rows is never
+        exceeded. An entry individually wider than dpy.cols can't be padded
+        into a cell without cutting its text, so it (and any items bumped
+        by a too-small grid) is counted and reported on the final line —
+        signalled, never silently dropped."""
+        gutter = 2
+        cols, rows = self.dpy.cols, self.dpy.rows
+
+        fits = [it for it in items if len(it) + gutter <= cols]
+        unfit = len(items) - len(fits)
+
+        col_width = max((len(it) for it in fits), default=0) + gutter
+        ncols = max(1, cols // col_width) if col_width else 1
+        capacity = ncols * rows
+
+        overflow = unfit + max(0, len(fits) - capacity)
+        if overflow:
+            shown = fits[:max(0, capacity - 1)]
+            for marker in (f'-- ({overflow} more; widen terminal) --',
+                           f'-- {overflow} more --', f'+{overflow} more'):
+                if len(marker) + gutter <= col_width:
+                    break
+            shown.append(marker[:cols])
+        else:
+            shown = fits
+
+        nrows = -(-len(shown) // ncols) if shown else 0   # ceil division; <= rows
+        columns = [shown[c * nrows:(c + 1) * nrows] for c in range(ncols)]
+        return [
+            ''.join((col[r] if r < len(col) else '').ljust(col_width)
+                    for col in columns).rstrip()
+            for r in range(nrows)
+        ]
 
     def _chord_for(self, command_name: str) -> str | None:
         """Key chord that invokes `command_name`, e.g. 'Esc ?'. Handles a direct
