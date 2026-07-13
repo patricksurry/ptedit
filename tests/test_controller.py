@@ -77,3 +77,22 @@ def test_meta_unknown_key_returns_to_normal(tmp_path):
     c.dispatch(ord('Z'))                               # unbound in META
     assert c.stack[-1].name is controller.KeyMode.NORMAL
     assert 'No action' in c.dpy.message
+
+
+def test_help_shows_and_dismisses(tmp_path):
+    c = _ctrl(tmp_path)
+    c.dispatch(controller.ctrl('['))                  # META
+    c.dispatch(ord('?'))                              # describe-bindings
+    assert c.stack[-1].name is controller.KeyMode.HELP
+    lines = c._help_lines()
+    assert any('move-forward-char' in ln for ln in lines)
+    c.dispatch(ord('x'))                              # any key dismisses
+    assert c.stack[-1].name is controller.KeyMode.NORMAL
+    assert c.doc.get_data() == 'hello world\n'        # dismiss key not inserted
+
+
+def test_unbound_error_names_help_chord(tmp_path):
+    c = _ctrl(tmp_path)
+    c.dispatch(controller.ctrl('G'))                  # C-G: unbound in NORMAL
+    assert 'No action' in c.dpy.message
+    assert 'Esc ? for help' in c.dpy.message

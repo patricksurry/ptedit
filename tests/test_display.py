@@ -384,3 +384,16 @@ def test_undo_screen_matches_fresh_render():
     ref_dpy.paint(None)
 
     assert frame_chars(scr) == frame_chars(ref_scr)
+
+
+def test_show_overlay_preserves_status_row():
+    doc = document.Document('body text\n' * 30)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)
+    # stamp a sentinel on the status row (row == dpy.rows) to prove it survives
+    scr.move(dpy.rows, 0)
+    scr.put(ord('#'))
+    dpy.show_overlay(['HELP LINE ONE', 'HELP LINE TWO'])
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('HELP LINE ONE')
+    assert scr.chars[dpy.rows][0] == ord('#')        # status row untouched

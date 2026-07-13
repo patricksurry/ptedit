@@ -67,6 +67,13 @@ class Display:
             self.scr.alert()
             logging.warning(msg)
 
+    def show_overlay(self, lines: list[str]) -> None:
+        """Paint `lines` over the text region only; leave the status row intact."""
+        for r in range(self.rows):
+            self.scr.move(r, 0)
+            text = (lines[r] if r < len(lines) else '')[:self.cols]
+            self.scr.puts(text + ' ' * (self.cols - len(text)))
+
     def find_top(self) -> tuple[int, bool]:
         """Choose the screen-row-0 rung with a sticky top per docs/rendering.md.
         Returns (top index, whether the top changed since last frame)."""

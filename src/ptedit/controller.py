@@ -22,6 +22,7 @@ class KeyMode(IntEnum):
     NORMAL = 0
     ISEARCH = 1
     META = 2
+    HELP = 3
 
 
 # note curses won't see all control keys since zsh is intercepting some
@@ -124,6 +125,7 @@ class Controller:
         self._register(self._search_forward, 'search-forward')
         self._register(self._search_backward, 'search-backward')
         self._register(self._isearch_cancel, 'isearch-cancel')
+        self._register(self.describe_bindings, 'describe-bindings')
 
         self.modes: dict[KeyMode, Mode] = {
             KeyMode.NORMAL: Mode(KeyMode.NORMAL, {
@@ -174,7 +176,9 @@ class Controller:
                 ord('v'): 'paste',
                 ord('y'): 'redo',
                 ord('z'): 'undo',
+                ord('?'): 'describe-bindings',
             }, on_unbound=self._meta_unbound, transient=True),
+            KeyMode.HELP: Mode(KeyMode.HELP, {}, on_unbound=self._help_unbound),
         }
         self.stack: list[Mode] = [self.modes[KeyMode.NORMAL]]
 
@@ -212,7 +216,11 @@ class Controller:
 
     def interactive(self) -> None:
         while self.active:
-            cursor = self.dpy.paint(self.ed.mark)
+            if self.stack[-1].name is KeyMode.HELP:
+                self.dpy.show_overlay(self._help_lines())
+                cursor = Cell(0, 0)
+            else:
+                cursor = self.dpy.paint(self.ed.mark)
             self.dpy.scr.move(self.dpy.rows, 0)
             status = self.status_message(cursor)
             status = (status[:self.dpy.cols] if len(status) >= self.dpy.cols
@@ -326,9 +334,48 @@ class Controller:
         self.ed.isearch_cancel()
         self._pop()
 
+    def _help_unbound(self, key: int) -> bool:
+        self._pop()                       # any key dismisses the overlay
+        return True
+
+    def describe_bindings(self) -> None:
+        if self.stack[-1].transient:      # leave the META prefix we arrived through
+            self._pop()
+        self._push(KeyMode.HELP)
+
+    def _help_lines(self) -> list[str]:
+        out: list[str] = []
+        for km in (KeyMode.NORMAL, KeyMode.META, KeyMode.ISEARCH):
+            mode = self.modes[km]
+            out.append(f'-- {km.name} --')
+            for key in sorted(mode.bindings):
+                out.append(f'  {keyname(key):<8} {mode.bindings[key]}')
+        return out
+
+    def _chord_for(self, command_name: str) -> str | None:
+        """Key chord that invokes `command_name`, e.g. 'Esc ?'. Handles a direct
+        NORMAL binding and a binding inside a prefix mode reached from NORMAL."""
+        normal = self.modes[KeyMode.NORMAL]
+        for key, name in normal.bindings.items():
+            if name == command_name:
+                return keyname(key)
+        for mode in self.modes.values():
+            if mode.name is KeyMode.NORMAL:
+                continue
+            for key, name in mode.bindings.items():
+                if name != command_name:
+                    continue
+                enter = next((keyname(k) for k, n in normal.bindings.items()
+                              if n == f'enter-{mode.name.name.lower()}'), None)
+                return f'{enter} {keyname(key)}' if enter else keyname(key)
+        return None
+
     def _beep(self, key: int) -> None:
+        hint = self._chord_for('describe-bindings')
+        suffix = f' — {hint} for help' if hint else ''
         self.dpy.show_message(
-            f'No action for {keyname(key)} in {self.stack[-1].name.name}', True)
+            f'No action for {keyname(key)} in {self.stack[-1].name.name}{suffix}',
+            True)
 
     def _normal_unbound(self, key: int) -> bool:
         if 32 <= key < 127:
