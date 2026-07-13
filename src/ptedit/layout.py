@@ -1,5 +1,4 @@
 from __future__ import annotations
-import logging
 from collections.abc import Iterator
 
 from .location import Location
@@ -62,7 +61,7 @@ class Layout:
         if not self.doc.at_end():
             self.doc.move_point(-1)
 
-    def _vertical_move(self, step, count: int = 1) -> None:
+    def _move_vertical(self, forward: bool, count: int = 1) -> None:
         """Apply `step` (bol_to_next_bol / bol_to_prev_bol) `count` times from
         the current line's BoL, landing on `goal_col` in the destination line.
         The goal column persists across consecutive vertical moves (traversing
@@ -76,7 +75,10 @@ class Layout:
             self.goal_col = 0 if cursor.is_end() else self.column_at(bol, cursor)
         self.doc.set_point(bol)
         for _ in range(count):
-            step()
+            if forward:
+                self.bol_to_next_bol()
+            else:
+                self.bol_to_prev_bol()
         dest = self.doc.get_point()
         if dest != bol:
             _, col_map = self.format_line()      # formats the destination line
@@ -88,19 +90,19 @@ class Layout:
 
     def move_forward_line(self) -> None:
         """Move cursor one visual line forward, tracking the goal column."""
-        self._vertical_move(self.bol_to_next_bol)
+        self._move_vertical(forward=True)
 
     def move_backward_line(self) -> None:
         """Move cursor one visual line backward, tracking the goal column."""
-        self._vertical_move(self.bol_to_prev_bol)
+        self._move_vertical(forward=False)
 
     def move_forward_page(self) -> None:
         """Move cursor `rows` visual lines forward."""
-        self._vertical_move(self.bol_to_next_bol, self.rows)
+        self._move_vertical(forward=True, count=self.rows)
 
     def move_backward_page(self) -> None:
         """Move cursor `rows` visual lines backward."""
-        self._vertical_move(self.bol_to_prev_bol, self.rows)
+        self._move_vertical(forward=False, count=self.rows)
 
     def note_change(self, edit: Edit) -> None:
         """Record screen damage and repair the ladder through `edit`.

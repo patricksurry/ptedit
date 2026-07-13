@@ -8,7 +8,7 @@ from typing import Callable, Literal, cast
 import logging
 
 
-from .document import Document, Location
+from .document import Document
 from .editor import Editor
 from .display import Display, Cell
 from .screen import Screen
@@ -185,6 +185,7 @@ class Controller:
             self.dpy.scr.move(*cursor)
             self.dpy.scr.refresh()
             try:
+                assert self.getch, "interactive() requires a getch function"
                 key = self.getch()
                 logging.info(f'key ${key:02x}')
                 self.dispatch(key)

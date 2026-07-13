@@ -8,7 +8,6 @@ from .location import Location
 from .edit import Edit
 
 
-
 whitespace = ' \t\n'
 
 
@@ -37,15 +36,6 @@ R = TypeVar('R')    # Represents the return type of the decorated function
 
 
 OnChange = Callable[['Edit | None'], None]
-
-
-def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatenate[Document, P], R]:
-    """Wrap a forward edit: notify the change hook with the applied Edit."""
-    def wrapped(self: Document, *args: P.args, **kwargs: P.kwargs) -> R:
-        retval = method(self, *args, **kwargs)
-        self._notify(self._edit)
-        return retval
-    return wrapped
 
 
 class Document:
@@ -234,6 +224,15 @@ class Document:
                 if not match:
                     break
         return match
+
+    @staticmethod
+    def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatenate[Document, P], R]:
+        """Wrap a forward edit: notify the change hook with the applied Edit."""
+        def wrapped(self: Document, *args: P.args, **kwargs: P.kwargs) -> R:
+            retval = method(self, *args, **kwargs)
+            self._notify(self._edit)
+            return retval
+        return wrapped
 
     @mutator
     def insert(self, s: str) -> Document:
