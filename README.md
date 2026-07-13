@@ -1,13 +1,9 @@
 # ptedit
 
-A small ASCII text editor built around the
-[piece-table data structure][piecetable]. The Python prototype here is
-deliberately minimal — it exists to teach the piece-table concept and the
-basics of how an editor is wired together, and to act as the reference
-implementation for an eventual port to 6502 [Forth][tali] and native
-assembly.
-
-Inspired by Brown's [*Piece Chains*][piecechain] and Finseth's
+A minimalist ASCII text editor built around the [piece-table data structure][piecetable]. 
+The Python reference implementation explores basic editor wiring using the piece-table concept. 
+The eventual aim is a 6502 [Forth][tali]/assembly port.
+The code is inspired by Brown's [*Piece Chains*][piecechain] and Finseth's
 [*Craft of Text Editing*][craft].
 
 [piecetable]: https://en.wikipedia.org/wiki/Piece_table
@@ -49,31 +45,36 @@ points into the data of some primary piece. The *ur*-piece loaded
 from disk is a primary piece spanning the whole source file:
 
 ```
-[start] <-> [ ur-piece "the quick brown fox" ] <-> [end]
+[start] <-> [ "the quick brown fox" ] <-> [end]
+                     ^
+                     |
+                the ur piece 
 ```
 
 Every change is captured as an `Edit` that swaps a fragment of the
 chain for a new one of up to three pieces — `pre`, `ins`, `post`:
 
 ```
-              before                                  after
-                 \                                     /
-   [start] <-> [ pre ] <-> [ ins ] <-> [ post ] <-> [end]
-                  ^           ^           ^
-       shadows left of edit   |     shadows right of edit
-                       owns inserted data
+      [before] <-> [ "some text" ] <-> [after]
+
+Edit:           -> [ "some text" ] <-
+                     (unlinked)
+
+      [before] <-> [ "some " ] <-> [ "new " ] <-> [ "text" ] <-> [after]
+                       pre             ins           post
+                  (shadows left)   (new data)    (shadows right)
 ```
 
 The `Edit` keeps pointers to the unlinked fragment
-(`exclude_first`/`exclude_last`), so undo just re-swaps it back in.
-`Edit`s form their own doubly-linked list; the current document state
+(`exclude_first`/`exclude_last`), so undo can simply swap it back in.
+`Edit`s also form doubly-linked list; the current document state
 is "everything up to and including the active `Edit`," redo walks
 forward, and a new edit after some undos truncates the forward chain.
 
 As an optimization the most recent `Edit` may be extended in place
 when the next change is contiguous and compatible (e.g. typing
 `a`, `b`, `c` collapses into a single insert of `"abc"`). You can
-watch this in the status bar — `eds N/M` typically grows much more
+watch this in the status bar — `eds N/M` typically grows more
 slowly than your keystroke count.
 
 See `src/ptedit/piece.py` and `src/ptedit/edit.py` for more, including
@@ -82,45 +83,58 @@ an ASCII diagram of an `Edit`'s before/after links.
 ## MVC architecture
 
 ```
-       +--------------------------------------------------+
-       |                    Controller                    |
-       |    (curses I/O, keymap, status bar, save/quit)   |
-       +-----------+--------------------+-----------------+
-                   |                    |
-                   v                    v
-              +---------+         +-----------+
-              |  Editor |         |  Display  |
-              | (cmds:  |         |  (paint,  |
-              |  mark,  |         |  find_top)|
-              |  cut,   |         +-----+-----+
-              | search) |               |
-              +----+----+               v
-                   |              +-----------+
-                   +------------> |  Layout   |
-                   |              |(BoL ladder|
-                   |              | line moves|
-                   |              | format)   |
-                   |              +-----+-----+
-                   |                    |
-                   v                    v
-              +-------------------------------+
-              |          Document             |
-              |   (Piece chain + Edit list,   |
-              |    point, find/insert/delete) |
-              +-------------------------------+
+      +--------------------------------------------+
+      |                Controller                  |
+      | (curses IO, keymap, status bar, save/quit) |  
+      +--------+--------------------------+--------+
+               |                          |                        
+               v                          v
+      +-----------------+        +-----------------+       
+      |      Editor     |        |     Display     |
+      |    (commands)   |        |(paint, find_top)|
+      +-----------------+        +--------+--------+       
+               |                          |
+               |                          v
+               |        +--------------------------+
+               +------> |          Layout          |
+               |        | (ladder, line mvmt, fmt) |
+               |        +--------------------------+
+               |                          |
+               v                          v
+      +--------------------------------------------+
+      |                 Document                   |
+      | (Piece chain, Edits, point, find/ins/del)  |
+      +--------------------------------------------+
 ```
 
-| Layer       | Files                                               | Role                                                                                                                            |
-|-------------|-----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
-| Model       | `piece.py`, `edit.py`, `location.py`, `document.py` | The piece-table itself: pieces, edits, point locations, and a `Document` API for char/region access.                            |
-| Layout      | `layout.py`                                         | Maps the document onto a screen grid: caches beginning-of-line marks, formats one line of glyphs, exposes line/page navigation. |
-| View        | `display.py`, `screen.py`                           | Walks lines from `Layout` and paints them via the abstract `Screen`; tracks `preferred_top` for scrolling.                      |
-| Controller  | `editor.py`, `controller.py`                        | `Editor` owns mark/clipboard/isearch state and exposes named commands; `Controller` binds keys and renders the status bar.      |
+| Layer | Files | Role  |
+|-------|-------|-------|
+| Model | `piece.py`, `edit.py`, `location.py`, `document.py` | The piece-table itself: pieces, edits, point locations, and a `Document` API for char/region access. |
+| Layout | `layout.py` | Maps the document onto a screen grid: caches beginning-of-line marks, formats one line of glyphs, exposes line/page navigation. |
+| View | `display.py`, `screen.py` | Walks lines from `Layout` and paints them via the abstract `Screen`, tracking sticky-top scroll state; `paint` reads the document (point saved/restored) and never mutates model or movement state. |
+| Controller  | `editor.py`, `controller.py` | `Editor` owns mark/clipboard/isearch state and exposes named commands; `Controller` binds keys and renders the status bar. |
 
 The split keeps each concern testable in isolation: the model has no
 idea a screen exists, `Layout` knows columns and rows but not curses,
 `Display` paints into a `Screen` that is mocked in tests, and the
 `Editor` talks to `Display` only through a `notify` callback.
+
+Five invariants pin the layering (see `docs/rendering.md` for the
+rendering side):
+
+1. **Commands complete themselves.** After a key's action runs, the
+   point is final — vertical moves land on their goal column at
+   command time; nothing is deferred to the next paint.
+2. **`paint` is read-only.** It saves the point on entry, restores it
+   before returning, and never mutates model or movement state.
+3. **`Layout` is the ladder's only writer.** `Display` consumes the
+   BoL cache through accessors and never appends or truncates it.
+4. **Screen damage is one number** — the lowest document position
+   whose on-screen bytes may be stale; paint turns it into a single
+   first-dirty row.
+5. **One change hook.** `Document.on_change` is consumed by `Display`
+   alone: forward edits remap caches incrementally (the typing hot
+   path); undo, redo, and squash reset them wholesale.
 
 ## Repository layout
 

@@ -1,11 +1,19 @@
 # The view layer: paints lines from Layout onto a Screen and tracks scroll state.
-from typing import TYPE_CHECKING
+from __future__ import annotations
 import logging
+from typing import NamedTuple
 
 from .document import Document
+from .edit import Edit
 from .location import Location
 from .layout import Layout
 from .screen import Screen
+from .stats import stats
+
+
+class Cell(NamedTuple):
+    row: int
+    col: int
 
 
 class Display:
@@ -13,130 +21,107 @@ class Display:
             self,
             doc: Document,
             scr: Screen,
-            guard_rows: int=3,
-            preferred_row: int=0,
-            tab: int=4,
-        ):
+            guard_rows: int = 3,
+            preferred_row: int = 0,
+            tab: int = 4,
+    ) -> None:
         self.scr = scr
         self.doc = doc
         self.rows = self.scr.height - 1     # one for status
         self.cols = self.scr.width
 
-        self.layout = Layout(self.doc, self.cols, self.rows, self.rows // 2, tab)
+        self.layout = Layout(self.doc, self.cols, self.rows, tab)
 
         # layout options
         self.guard_rows = guard_rows
         self.preferred_row = preferred_row if preferred_row else ((self.rows // 2) - 1)
-        self.preferred_top: Location | None = None
-
         self.message = ''
-        self.doc.watch(self.change_handler)
+        self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
+        self.prev_selection: bool = False        # True if last frame painted a selection highlight
 
-    def change_handler(self, start: Location, end: Location):
-        self.layout.change_handler(start, end)
+        # Last assignment wins: a second Display on the same doc would steal
+        # this hook. Single-consumer by design (one Display per Document).
+        doc.on_change = self.note_change
+
+    def note_change(self, edit: Edit | None) -> None:
+        """Document change hook. Forward edits repair the caches incrementally
+        (the typing hot path); anything else resets them — one rule, no
+        staleness reasoning."""
+        if edit is None:
+            self.layout.invalidate()
+            self.top_loc = None
+            return
+        self.layout.note_change(edit)
+        if self.top_loc is not None:
+            self.top_loc = edit.remap_location(self.top_loc)
 
     ### External interface begins
 
-    def recenter(self):
-        """Force point back to preferred row by invalidating sticky top"""
-        self.preferred_top = None
+    def recenter(self) -> None:
+        """Force the next paint to recenter the cursor."""
+        self.top_loc = None
 
-    def show_message(self, msg: str, warn: bool=False):
+    def show_message(self, msg: str, warn: bool = False) -> None:
         self.message = msg
         if warn:
             self.scr.alert()
             logging.warning(msg)
 
-    def find_top(self):
-        """
-        Move the point to the top left of the screen,
-        anchoring to preferred_top if possible.
-        """
-        if TYPE_CHECKING:
-            # pylance doesn't know rows > preferred_row > 0
-            k = 0
-            fallback = self.doc.get_point()
+    def find_top(self) -> tuple[int, bool]:
+        """Choose the screen-row-0 rung with a sticky top per docs/rendering.md.
+        Returns (top index, whether the top changed since last frame)."""
+        stats.tick('find_top')
+        stats.sample('find_top.ladder_len', float(len(self.layout.bol_ladder)))
+        old_top_loc = self.top_loc
+        cursor = self.doc.get_point()
+        cur_idx = self.layout.ensure_bracketed(cursor)
 
-        self.layout.clamp_to_bol()
-        for k in range(1,self.rows+1):
-            self.layout.bol_to_prev_bol()
-            if k == self.preferred_row:
-                fallback = self.doc.get_point()
-            if self.doc.get_point() == self.preferred_top:
-                break
+        top_idx: int | None = None
+        if self.top_loc is not None:
+            top_idx = self.layout.line_index_of_loc(self.top_loc)
 
-        # found top?
-        if k < self.rows:
-            # too close to point?
-            while k < self.guard_rows:
+        if top_idx is not None and 0 <= cur_idx - top_idx < self.rows:
+            # Sticky: clamp the cursor's row into [guard_rows, rows - guard_rows - 1].
+            delta = max(self.guard_rows, min(self.rows - self.guard_rows - 1, cur_idx - top_idx))
+            top_idx = max(0, cur_idx - delta)
+        else:
+            stats.tick('find_top.recenter')
+            self.layout.clamp_to_bol()
+            for _ in range(self.preferred_row):
+                if self.doc.at_start():
+                    break
                 self.layout.bol_to_prev_bol()
-                k += 1
+            top_idx = self.layout.line_index(self.doc.get_point())
 
-            # found top too far from point?
-            while k >= self.rows - self.guard_rows:
-                self.layout.bol_to_next_bol()
-                k -= 1
-        else:
-            self.doc.set_point(fallback)
+        top_idx = self.layout.make_room(top_idx, self.rows)
+        self.top_loc = self.layout.bol(top_idx)
+        return top_idx, (old_top_loc is None or old_top_loc != self.top_loc)
 
-        self.preferred_top = self.doc.get_point()
+    def _render_rows(
+            self,
+            start_row: int,
+            end_row: int,
+            mark: Location | None,
+            top_idx: int,
+            pt: Location,
+    ) -> None:
+        """Emit ladder rows [start_row, end_row) to the screen, highlighting
+        the [mark, pt) selection. Rows above start_row are assumed byte-stable
+        in the video buffer."""
+        if start_row > 0:
+            self.scr.move(start_row, 0)
 
-    def paint(self, mark: Location|None=None) -> tuple[int, int]:
-        """
-        Paint the buffer content to the screen, returning the cursor position.
-        Leaves point unchanged. The caller is responsible for the status line,
-        restoring the cursor, and refreshing the screen.
-        """
-        original_pt = self.doc.get_point()
-        at_end = self.doc.at_end()
-
-        self.find_top()         # move point to show at top-left of screen
-
-        self.scr.clear()        # move cursor to 0,0
-
-        cursor = (0,0)
-
-        start_pt = self.doc.get_point()
-        start_pos = start_pt.position()
-        pt_off = original_pt.position() - start_pos
-        assert pt_off >= 0, "Point should always be on screen"
-        if mark:
-            mark_off = (mark.position() - start_pos)
-        else:
-            mark_off = pt_off
-
+        start_pos = self.layout.ensure_row(top_idx + start_row).position()
+        pt_off = pt.position() - start_pos
+        mark_off = mark.position() - start_pos if mark else pt_off
         highlight = mark_off < 0
 
-        row = 0
-        while row < self.rows:
-            line, col_map = self.layout.format_line()
-            pt = self.doc.get_point()
+        for line, col_map in self.layout.render_lines(top_idx + start_row, end_row - start_row):
             delta = len(col_map)
-            start_pt = pt
-            toggle_mark = -1
-            toggle_pt = -1
-            # found the point?
-            logging.info(f"delta {delta} pt_off {pt_off} end {self.doc.at_end()}")
-            if 0 <= pt_off < delta:
-                # deferred move to preferred column?
-                if not at_end and self.layout.pin_preferred_col:
-                    assert pt_off == 0, f"panic: pt_off={pt_off}"
-                    pt_off = self.layout.offset_for_column(self.layout.preferred_col, col_map)
-                    original_pt = original_pt.move(pt_off)
-                    if not mark:
-                        mark_off = pt_off
-                col = col_map[pt_off]
-                toggle_pt = col
-                cursor = (row, col)
-
-            if 0 <= mark_off < delta:
-                # found the mark?
-                col = col_map[mark_off]
-                toggle_mark = col
-
+            toggle_pt = col_map[pt_off] if 0 <= pt_off < delta else -1
+            toggle_mark = col_map[mark_off] if 0 <= mark_off < delta else -1
             pt_off -= delta
             mark_off -= delta
-
             for col, ch in enumerate(line):
                 if toggle_pt == col:
                     highlight = not highlight
@@ -149,14 +134,54 @@ class Display:
                     case _: pass
                 self.scr.put(ch, highlight)
 
-            row += 1
+    def _first_dirty_row(self, damage_pos: int, top_idx: int) -> int:
+        """First screen row whose bytes may differ from the video buffer, given
+        document content at/after `damage_pos` may have changed. Row r is clean
+        iff its line ends at or before damage_pos (i.e. the next BoL's position
+        is <= damage_pos). Returns rows when the damage is entirely below the
+        window (possible when an edit truncated rungs kept past the screen)."""
+        dirty = 0
+        for r in range(self.rows):
+            i = top_idx + r + 1
+            if i >= len(self.layout.bol_ladder):
+                break                       # no cached rung below: damage row stands
+            if self.layout.bol(i).position() <= damage_pos:
+                dirty = r + 1
+            else:
+                break
+        return dirty
 
-        self.doc.set_point(original_pt)
+    def paint(self, mark: Location | None = None) -> Cell:
+        """Paint the buffer to the screen; returns the cursor cell.
+        Reads the document; the point is saved and restored."""
+        pt = self.doc.get_point()
 
-        if not self.layout.pin_preferred_col:
-            self.layout.preferred_col = cursor[1] if not self.doc.at_end() else 0
+        damage_pos = self.layout.take_damage()
+        selection = mark is not None and mark.position() != pt.position()
+
+        top_idx, top_changed = self.find_top()
+
+        row, col = self.layout.locate(pt)
+        cursor = Cell(row - top_idx, col)
+        assert 0 <= cursor.row < self.rows, "find_top must keep the cursor on screen"
+
+        if top_changed or selection or self.prev_selection:
+            first_dirty = 0
+        elif damage_pos is not None:
+            first_dirty = self._first_dirty_row(damage_pos, top_idx)
         else:
-            self.layout.pin_preferred_col = False
+            first_dirty = self.rows
 
+        if first_dirty == 0:
+            stats.tick('paint.full')
+            self.scr.clear()
+            self._render_rows(0, self.rows, mark, top_idx, pt)
+        elif first_dirty < self.rows:
+            stats.tick('paint.local_edit')
+            self._render_rows(first_dirty, self.rows, mark, top_idx, pt)
+        else:
+            stats.tick('paint.no_scroll')
+
+        self.prev_selection = selection
+        self.doc.set_point(pt)
         return cursor
-

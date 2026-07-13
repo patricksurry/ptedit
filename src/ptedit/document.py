@@ -35,45 +35,36 @@ P = ParamSpec('P')  # Represents the parameters of the decorated function
 R = TypeVar('R')    # Represents the return type of the decorated function
 
 
-def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatenate[Document, P], R]:
-    def wrapped(self: Document, *args: P.args, **kwargs: P.kwargs) -> R:
-        retval = method(self, *args, **kwargs)
-        self.notify_watchers()
-        return retval
-    return wrapped
-
-
-Watcher = Callable[[Location,Location],None]
+OnChange = Callable[['Edit | None'], None]
 
 
 class Document:
-    def __init__(self, s: str=''):
-        self._watchers: list[Watcher] = []
+    def __init__(self, s: str = '') -> None:
+        # The single change hook: called with the applied Edit after a forward
+        # edit, or None after a wholesale change (undo/redo/squash) meaning
+        # "reset any cached view of the piece chain".
+        self.on_change: OnChange | None = None
 
         # Create sentinel pieces at the ends of the chain
         # These are the only Pieces that are empty
         self._start: Piece = PrimaryPiece(allow_empty=True)
         self._end: Piece = PrimaryPiece(allow_empty=True)
-        self.dirty = False
+        self.dirty: bool = False
         self._reset(s)
 
-    def _reset(self, s: str):
+    def _reset(self, s: str) -> None:
         Piece.link(self._start, self._end)
         self._edit = Edit.create(Location(self._end), insert=s)
         self.set_point_start()
 
-    def watch(self, watcher: Watcher):
-        self._watchers.append(watcher)
-
-    def notify_watchers(self):
+    def _notify(self, edit: Edit | None) -> None:
         self.dirty = True
-        start, end = (self._edit.get_change_start(), self._edit.get_change_end())
-        for watcher in self._watchers:
-            watcher(start, end)
+        if self.on_change is not None:
+            self.on_change(edit)
 
-    @mutator
-    def squash(self):
+    def squash(self) -> None:
         self._reset(self.get_data())
+        self._notify(None)
 
     def at_start(self) -> bool:
         return self._point.is_start()
@@ -234,6 +225,15 @@ class Document:
                     break
         return match
 
+    @staticmethod
+    def mutator(method: Callable[Concatenate[Document, P], R]) -> Callable[Concatenate[Document, P], R]:
+        """Wrap a forward edit: notify the change hook with the applied Edit."""
+        def wrapped(self: Document, *args: P.args, **kwargs: P.kwargs) -> R:
+            retval = method(self, *args, **kwargs)
+            self._notify(self._edit)
+            return retval
+        return wrapped
+
     @mutator
     def insert(self, s: str) -> Document:
         if not s:
@@ -270,21 +270,21 @@ class Document:
         # for testing
         return self._edit.prev is not None
 
-    @mutator
     def undo(self) -> Document:
         if self._edit.prev:
             self.set_point(self._edit.undo())
             self._edit = self._edit.prev
+            self._notify(None)
         return self
 
-    @mutator
     def redo(self) -> Document:
         if self._edit.next:
             self._edit = self._edit.next
             self.set_point(self._edit.redo())
+            self._notify(None)
         return self
 
-    def __str__(self):
+    def __str__(self) -> str:
         p = self._start.next
         s: str = ''
         while p is not None:
@@ -296,7 +296,7 @@ class Document:
             p = p.next
         return s
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         lines: list[str] = []
         p = self._start
         while True:

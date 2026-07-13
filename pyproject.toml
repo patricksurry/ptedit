@@ -17,3 +17,9 @@ pythonpath = [
 addopts = [
     "--import-mode=importlib",
 ]
+
+[dependency-groups]
+dev = [
+    "line-profiler>=5.0.2",
+    "pytest-cov>=7.1.0",
+]

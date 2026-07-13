@@ -31,29 +31,36 @@ def test_line_start_end_roundtrip():
 
 def test_line_forward_back_preserves_column():
     """
-    move_forward_line + move_backward_line round-trip preserves position
-    when paint() runs in between to resolve pin_preferred_col.
+    move_forward_line + move_backward_line round-trip preserves position.
 
-    The middle line 'a' is shorter than the requested column, so paint()
-    must clamp the cursor there.  preferred_col must be preserved across
+    Layout.goal_col is set eagerly by the first vertical move (not resolved
+    later by paint()) and persists across consecutive vertical moves — a
+    move lands on goal_col immediately via offset_for_column against the
+    destination line's col_map.
+
+    The middle line 'a' is shorter than the requested column, so the move
+    onto it clamps the cursor there.  goal_col must be preserved across
     that clamp so the surrounding longer lines snap back to column 3.
-    A buggy implementation that overwrites preferred_col with the post-clamp
+    A buggy implementation that overwrote goal_col with the post-clamp
     cursor column would land at column 1 (or 0) of the outer lines instead.
+    The interleaved paint() calls exercise the normal command-loop shape
+    (paint after every cursor move) but aren't required to resolve the
+    column themselves.
     """
     doc, dpy = make_dpy('three\na\nseven!!\n')
     doc.move_point(3)   # column 3 ('e') of 'three'
-    dpy.paint()         # seeds preferred_col=3 from current cursor column
+    dpy.paint()         # normal command-loop shape; goal_col isn't set yet
     pt_before = doc.get_point().position()
     assert pt_before == 3
-    dpy.layout.move_forward_line()
-    dpy.paint()         # on 'a' line; cursor must clamp, preferred_col stays 3
-    dpy.layout.move_forward_line()
-    dpy.paint()         # on 'seven!!'; should snap to column 3 -> pos 11
+    dpy.layout.move_forward_line()   # lands on 'a', clamped; goal_col set to 3
+    dpy.paint()
+    dpy.layout.move_forward_line()   # 'seven!!': snaps to column 3 -> pos 11
+    dpy.paint()
     assert doc.get_point().position() == 11
-    dpy.layout.move_backward_line()
-    dpy.paint()         # back on 'a' line; clamp again, preferred_col stays 3
-    dpy.layout.move_backward_line()
-    dpy.paint()         # back on 'three'; should restore column 3
+    dpy.layout.move_backward_line()  # back on 'a'; clamp again, goal_col stays 3
+    dpy.paint()
+    dpy.layout.move_backward_line()  # back on 'three'; restores column 3
+    dpy.paint()
     assert doc.get_point().position() == pt_before
 
 

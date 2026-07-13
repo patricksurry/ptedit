@@ -1,4 +1,5 @@
 *.bin
+!tests/golden/*.bin
 *.po
 ptedit.fs
 *~
@@ -11,3 +12,4 @@ src/ptedit.egg-info/
 __pycache__/
 venv/
 .venv/
+.coverage

@@ -209,3 +209,57 @@ class Edit:
             loc = loc.move(-len(self.post))
         return loc
 
+    def remap_location(self, loc: Location) -> 'Location | None':
+        """Translate a Location captured BEFORE this edit was applied to its
+        equivalent in the post-edit chain.
+
+        Returns:
+          - `loc` itself if `loc.piece` was not touched by this edit.
+          - `Location(self.pre, offset)` or `Location(self.post, offset - post_start_in_P)`
+            when the original piece was split and `loc.offset` lands cleanly in
+            the surviving prefix or suffix.
+          - None when the location can't be preserved: the offset fell into a
+            deleted slice, OR the unlinked chain spans multiple pieces (we don't
+            try to remap multi-piece unlinks; the caller should drop the entry).
+        """
+        # Pure-insertion edit (no fragment removed): nothing was unlinked, so no
+        # Locations need remapping.
+        if self.exclude_empty:
+            return loc
+        # If loc's piece is not the (single) unlinked piece, no remap needed.
+        # Multi-piece unlink (exclude_first != exclude_last) and loc happens to
+        # be on either end: drop it (we don't try to handle that case here).
+        if loc.piece is not self.exclude_first:
+            return loc if self.exclude_first is self.exclude_last else (
+                None if self._in_unlinked_chain(loc.piece) else loc
+            )
+        if self.exclude_first is not self.exclude_last:
+            # loc is on a multi-piece unlinked chain — punt.
+            return None
+
+        # Single-piece split: pre holds the first len(pre) chars; post holds
+        # the last len(post) chars; the middle (if any) is deleted.
+        P_len = len(self.exclude_first)
+        pre_len = len(self.pre) if self.pre is not None else 0
+        post_len = len(self.post) if self.post is not None else 0
+        post_start_in_P = P_len - post_len
+
+        if loc.offset < pre_len:
+            assert self.pre is not None
+            return Location(self.pre, loc.offset)
+        if loc.offset >= post_start_in_P:
+            assert self.post is not None
+            return Location(self.post, loc.offset - post_start_in_P)
+        return None       # in the deleted middle
+
+    def _in_unlinked_chain(self, piece: 'Piece') -> bool:
+        """True if `piece` is in the unlinked chain [exclude_first .. exclude_last]."""
+        p: 'Piece | None' = self.exclude_first
+        while p is not None:
+            if p is piece:
+                return True
+            if p is self.exclude_last:
+                return False
+            p = p.next
+        return False
+
