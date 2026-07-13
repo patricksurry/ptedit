@@ -1,4 +1,5 @@
 import curses
+import re
 
 import pytest
 
@@ -156,6 +157,53 @@ def test_help_lines_fit_moderately_narrow_screen(tmp_path):
     lines = c._help_lines()
     assert all(len(ln) <= 40 for ln in lines)
     assert len(lines) <= 23
+
+
+def _help_items(c):
+    """Reconstruct the flat item list _help_lines feeds to _help_lines_safe
+    (headers + entries, in order) — independent of the grid math under test."""
+    items = []
+    for km in (controller.KeyMode.NORMAL, controller.KeyMode.META, controller.KeyMode.ISEARCH):
+        mode = c.modes[km]
+        entries = [f'{controller.keyname(key):<8}{mode.bindings[key]}' for key in sorted(mode.bindings)]
+        items += [f'-- {km.name} --'] + entries
+    return items
+
+
+def test_help_lines_safe_overflow_count_is_exact(tmp_path):
+    """The '-- N more --' marker must report exactly how many real items are
+    not visible — derived from what's actually shown, not a parallel count
+    that can drift (previously off by one: one grid cell is reserved for the
+    marker itself, so capacity - 1 real items are shown, not capacity)."""
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    c = controller.Controller(str(f), Screen(6, 80))       # dpy.rows == 5
+    lines = c._help_lines()
+
+    items = _help_items(c)
+    visible = sum(1 for it in items if any(it in ln for ln in lines))
+
+    marker_line = next(ln for ln in lines if 'more' in ln)
+    n = int(re.search(r'(\d+)', marker_line).group(1))
+    assert n == len(items) - visible
+
+
+def test_help_lines_safe_fits_at_overflow_size(tmp_path):
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    c = controller.Controller(str(f), Screen(6, 80))
+    lines = c._help_lines()
+    assert all(len(ln) <= c.dpy.cols for ln in lines)
+
+
+def test_help_lines_safe_marker_capped_at_extreme_narrow_screen(tmp_path):
+    """Even when the marker template can't fit its own grid cell (col_width
+    too small), the assembled line must never exceed dpy.cols."""
+    f = tmp_path / 't.txt'
+    f.write_text('hello world\n')
+    c = controller.Controller(str(f), Screen(24, 8))
+    lines = c._help_lines()
+    assert all(len(ln) <= 8 for ln in lines)
 
 
 def test_unbound_error_names_help_chord(tmp_path):

@@ -392,14 +392,16 @@ class Controller:
         ncols = max(1, cols // col_width) if col_width else 1
         capacity = ncols * rows
 
-        overflow = unfit + max(0, len(fits) - capacity)
+        overflow = unfit > 0 or len(fits) > capacity
         if overflow:
-            shown = fits[:max(0, capacity - 1)]
-            for marker in (f'-- ({overflow} more; widen terminal) --',
-                           f'-- {overflow} more --', f'+{overflow} more'):
+            shown = fits[:max(0, capacity - 1)]           # reserve one cell for the marker
+            hidden = unfit + (len(fits) - len(shown))      # derived from what's actually shown, not a parallel formula
+            for marker in (f'-- ({hidden} more; widen terminal) --',
+                           f'-- {hidden} more --', f'+{hidden} more'):
                 if len(marker) + gutter <= col_width:
                     break
-            shown.append(marker[:cols])
+            marker = marker[:max(0, col_width - gutter)]   # hard cap: marker must fit its own cell regardless
+            shown.append(marker)
         else:
             shown = fits
 
