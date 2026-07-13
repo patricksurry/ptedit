@@ -3,7 +3,8 @@ import curses
 import os
 from time import time
 from enum import IntEnum
-from typing import Callable, Literal, cast
+from dataclasses import dataclass
+from typing import Callable
 
 import logging
 
@@ -62,25 +63,16 @@ def keyname(code: int) -> str:
     return f'<{code}>'
 
 
-ActionFn = Callable[[], None]
-Action = KeyMode | int | ActionFn
-Actionable = None | Action | list[Action]
-ActionKey = int | Literal["fallback"] | Literal["after"]
-
-
-def actionlist(actionable: Actionable) -> list[Action]:
-    if isinstance(actionable, list):
-        return cast(list[Action], actionable)
-    elif actionable is not None:
-        return [actionable]
-    else:
-        return []
+@dataclass
+class Mode:
+    name: KeyMode
+    bindings: dict[int, str]                  # key code -> command name
+    on_unbound: Callable[[int], bool]         # unbound key: returns handled?
+    transient: bool = False                   # prefix mode: pop after one dispatch
 
 
 class Controller:
     def __init__(self, fname: str, scr: Screen, getch: Callable[[], int] | None = None) -> None:
-        self.mode = KeyMode.NORMAL
-
         # create missing file
         if not os.path.exists(fname):
             open(fname, 'w').close()
@@ -99,75 +91,99 @@ class Controller:
         self.getch = getch
         self.active = True
 
-        # printable ascii keys insert themselves
-        printable = {k: k for k in range(32,127)}
+        self.commands: dict[str, Callable[[], None]] = {}
         ed = self.ed
         dpy = self.dpy
-        layout = self.dpy.layout
-        self.keymap: list[dict[ActionKey, Actionable]] = [
-            # KeyMode.NORMAL
-            {
-                curses.KEY_LEFT: ed.move_backward_char,
-                curses.KEY_RIGHT: ed.move_forward_char,
-                curses.KEY_UP: layout.move_backward_line,
-                curses.KEY_DOWN: layout.move_forward_line,
-                curses.KEY_ENTER: ord('\n'),  # NL
-                curses.KEY_BACKSPACE: ed.delete_backward_char,  # bksp ^H
-                127: ed.delete_backward_char,
-                ctrl('A'): layout.move_start_line,
-                ctrl('B'): ed.move_backward_word,
-                ctrl('F'): ed.move_forward_word,
-                ctrl('E'): layout.move_end_line,
-                ctrl('D'): ed.delete_forward_char,
-                ctrl('I'): ord('\t'),           # tab
-                ctrl('J'): ord('\n'),           # newline
-                ctrl('L'): dpy.recenter,  # redraw screen
-                ctrl('Y'): ed.redo,
-                ctrl('Z'): ed.undo,
-                ctrl('['): KeyMode.META,      # escape
-                ctrl('_'): ed.squash,
-                ctrl('S'): [KeyMode.ISEARCH, ed.isearch_forward],
-                ctrl('R'): [KeyMode.ISEARCH, ed.isearch_backward],
-                ctrl('O'): ed.toggle_overwrite,
-                **printable
-            },
-            # KeyMode.ISEARCH
-            {
-                # A few keys stay in ISEARCH mode and otherwise
-                # we fall through and retry in NORMAL mode
-                'fallback': [ed.isearch_exit, KeyMode.NORMAL],
 
-                ctrl('S'): ed.isearch_forward,
-                ctrl('R'): ed.isearch_backward,
-                ctrl('['): [ed.isearch_cancel, KeyMode.NORMAL],
-                127: ed.isearch_delete,
-                **printable,
-            },
-            # KeyMode.META
-            # These are keys entered after an initial Escape (C-[) is entered
-            # Any valid ascii value can be used, e.g. a, A, C-A are all distinct options
-            {
-                'after': KeyMode.NORMAL,
+        # buffer commands (auto-named from __name__, kebab-cased)
+        for fn in (
+            ed.move_backward_char, ed.move_forward_char,
+            ed.move_backward_word, ed.move_forward_word,
+            ed.move_backward_para, ed.move_forward_para,
+            ed.move_start_line, ed.move_end_line,
+            ed.move_forward_line, ed.move_backward_line,
+            ed.move_forward_page, ed.move_backward_page,
+            ed.move_start, ed.move_end,
+            ed.delete_backward_char, ed.delete_forward_char,
+            ed.set_mark, ed.clear_mark,
+            ed.copy, ed.cut, ed.paste, ed.copy_line, ed.cut_line,
+            ed.undo, ed.redo, ed.squash, ed.toggle_overwrite,
+            ed.isearch_forward, ed.isearch_backward, ed.isearch_delete,
+        ):
+            self._register(fn)
 
-                ctrl('['): ed.clear_mark,
-                ord('a'): layout.move_backward_page,
-                ord('b'): ed.move_backward_para,
-                ord('f'): ed.move_forward_para,
-                ord('e'): layout.move_forward_page,
-                ord('A'): ed.move_start,
-                ord('E'): ed.move_end,
-                ord('m'): ed.set_mark,
-                ord('s'): self.save,
-                ord('q'): self.quit,
-                ord('c'): ed.copy,
-                ord('k'): ed.cut_line,
-                ord('K'): ed.copy_line,
-                ord('x'): ed.cut,
-                ord('v'): ed.paste,
-                ord('y'): ed.redo,
-                ord('z'): ed.undo,
-            }
-        ]
+        # app / view commands
+        self._register(dpy.recenter)
+        self._register(self.save)
+        self._register(self.quit)
+
+        # closures & composites (explicit names)
+        self._register(lambda: ed.insert(ord('\t')), 'insert-tab')
+        self._register(lambda: ed.insert(ord('\n')), 'insert-newline')
+        self._register(self._enter_meta, 'enter-meta')
+        self._register(self._search_forward, 'search-forward')
+        self._register(self._search_backward, 'search-backward')
+        self._register(self._isearch_cancel, 'isearch-cancel')
+
+        self.modes: dict[KeyMode, Mode] = {
+            KeyMode.NORMAL: Mode(KeyMode.NORMAL, {
+                curses.KEY_LEFT: 'move-backward-char',
+                curses.KEY_RIGHT: 'move-forward-char',
+                curses.KEY_UP: 'move-backward-line',
+                curses.KEY_DOWN: 'move-forward-line',
+                curses.KEY_ENTER: 'insert-newline',
+                curses.KEY_BACKSPACE: 'delete-backward-char',
+                127: 'delete-backward-char',
+                ctrl('A'): 'move-start-line',
+                ctrl('B'): 'move-backward-word',
+                ctrl('F'): 'move-forward-word',
+                ctrl('E'): 'move-end-line',
+                ctrl('D'): 'delete-forward-char',
+                ctrl('I'): 'insert-tab',
+                ctrl('J'): 'insert-newline',
+                ctrl('L'): 'recenter',
+                ctrl('Y'): 'redo',
+                ctrl('Z'): 'undo',
+                ctrl('['): 'enter-meta',
+                ctrl('_'): 'squash',
+                ctrl('S'): 'search-forward',
+                ctrl('R'): 'search-backward',
+                ctrl('O'): 'toggle-overwrite',
+            }, on_unbound=self._normal_unbound),
+            KeyMode.ISEARCH: Mode(KeyMode.ISEARCH, {
+                ctrl('S'): 'isearch-forward',
+                ctrl('R'): 'isearch-backward',
+                ctrl('['): 'isearch-cancel',
+                127: 'isearch-delete',
+            }, on_unbound=self._isearch_unbound),
+            KeyMode.META: Mode(KeyMode.META, {
+                ctrl('['): 'clear-mark',
+                ord('a'): 'move-backward-page',
+                ord('b'): 'move-backward-para',
+                ord('f'): 'move-forward-para',
+                ord('e'): 'move-forward-page',
+                ord('A'): 'move-start',
+                ord('E'): 'move-end',
+                ord('m'): 'set-mark',
+                ord('s'): 'save',
+                ord('q'): 'quit',
+                ord('c'): 'copy',
+                ord('k'): 'cut-line',
+                ord('K'): 'copy-line',
+                ord('x'): 'cut',
+                ord('v'): 'paste',
+                ord('y'): 'redo',
+                ord('z'): 'undo',
+            }, on_unbound=self._meta_unbound, transient=True),
+        }
+        self.stack: list[Mode] = [self.modes[KeyMode.NORMAL]]
+
+        # startup validation: every bound name resolves (also the future
+        # YAML-config validator).
+        for mode in self.modes.values():
+            for key, name in mode.bindings.items():
+                assert name in self.commands, \
+                    f'{mode.name.name}: {keyname(key)} -> unknown command {name!r}'
 
     def status_message(self, cursor: Cell) -> str:
         if self.dpy.message:
@@ -283,34 +299,63 @@ class Controller:
             self.dpy.layout.move_forward_page()
         return self._run(max_time, step)
 
+    def _register(self, fn: Callable[[], None], name: str | None = None) -> str:
+        name = name or fn.__name__.replace('_', '-')
+        self.commands[name] = fn
+        return name
+
+    def _push(self, m: KeyMode) -> None:
+        self.stack.append(self.modes[m])
+
+    def _pop(self) -> None:
+        assert len(self.stack) > 1, "cannot pop the base mode"
+        self.stack.pop()
+
+    def _enter_meta(self) -> None:
+        self._push(KeyMode.META)
+
+    def _search_forward(self) -> None:
+        self._push(KeyMode.ISEARCH)
+        self.ed.isearch_forward()
+
+    def _search_backward(self) -> None:
+        self._push(KeyMode.ISEARCH)
+        self.ed.isearch_backward()
+
+    def _isearch_cancel(self) -> None:
+        self.ed.isearch_cancel()
+        self._pop()
+
+    def _beep(self, key: int) -> None:
+        self.dpy.show_message(
+            f'No action for {keyname(key)} in {self.stack[-1].name.name}', True)
+
+    def _normal_unbound(self, key: int) -> bool:
+        if 32 <= key < 127:
+            self.ed.insert(key)
+        else:
+            self._beep(key)
+        return True
+
+    def _isearch_unbound(self, key: int) -> bool:
+        if 32 <= key < 127:
+            self.ed.isearch_insert(chr(key))
+            return True
+        self.ed.isearch_exit()
+        return False
+
+    def _meta_unbound(self, key: int) -> bool:
+        self._beep(key)
+        return True
+
     def dispatch(self, key: int) -> None:
-        """Handle an ascii keypress"""
-
-        actions: list[Action] = []
-        while True:
-            keymap = self.keymap[self.mode]
-            actions += actionlist(keymap.get(key))
-            if actions or 'fallback' not in keymap:
-                break
-            self._act(actionlist(keymap['fallback']))
-
-        if not actions:
-            self.dpy.show_message(
-                f'No action for key ${key:02x} in {self.mode.name} mode',
-                True
-            )
-
-        actions += actionlist(keymap.get('after'))
-
-        self._act(actions)
-
-    def _act(self, actions: list[Action]) -> None:
-        for action in actions:
-            if callable(action):
-                action()
-            elif isinstance(action, KeyMode):
-                self.mode = action
-            elif self.mode == KeyMode.ISEARCH:
-                self.ed.isearch_insert(chr(action))
-            else:
-                self.ed.insert(action)
+        """Route one key through the current mode."""
+        mode = self.stack[-1]
+        name = mode.bindings.get(key)
+        if name:
+            self.commands[name]()
+        elif not mode.on_unbound(key):        # declined -> pop and re-dispatch below
+            self.stack.pop()
+            return self.dispatch(key)
+        if mode.transient and self.stack[-1] is mode:
+            self.stack.pop()
