@@ -71,10 +71,18 @@ def keyname(code: int) -> str:
 
 @dataclass
 class Mode:
-    name: KeyMode
+    # A mode's identity is the KeyMode it is stored under in Controller.modes,
+    # so it isn't repeated here.
     bindings: dict[int, str]                  # key code -> command name
     on_unbound: Callable[[int], bool]         # unbound key: returns handled?
     transient: bool = False                   # prefix mode: pop after one dispatch
+
+    def chord_for(self, command: str) -> int | None:
+        """The key bound to `command` in this mode, or None."""
+        for key, name in self.bindings.items():
+            if name == command:
+                return key
+        return None
 
 
 class Controller:
@@ -97,12 +105,15 @@ class Controller:
         self.getch = getch
         self.active = True
 
-        self.commands: dict[str, Callable[[], None]] = {}
         ed = self.ed
         dpy = self.dpy
 
-        # buffer commands (auto-named from __name__, kebab-cased)
-        for fn in (
+        # The command registry: a name -> zero-arg callable "dictionary" of
+        # words. Bare callables are auto-named from __name__ (kebab-cased);
+        # (callable, name) pairs name a closure explicitly.
+        self.commands: dict[str, Callable[[], None]] = {}
+        self.register_commands([
+            # buffer commands
             ed.move_backward_char, ed.move_forward_char,
             ed.move_backward_word, ed.move_forward_word,
             ed.move_backward_para, ed.move_forward_para,
@@ -115,25 +126,16 @@ class Controller:
             ed.copy, ed.cut, ed.paste, ed.copy_line, ed.cut_line,
             ed.undo, ed.redo, ed.squash, ed.toggle_overwrite,
             ed.isearch_forward, ed.isearch_backward, ed.isearch_delete,
-        ):
-            self._register(fn)
-
-        # app / view commands
-        self._register(dpy.recenter)
-        self._register(self.save)
-        self._register(self.quit)
-
-        # closures & composites (explicit names)
-        self._register(lambda: ed.insert(ord('\t')), 'insert-tab')
-        self._register(lambda: ed.insert(ord('\n')), 'insert-newline')
-        self._register(self._enter_meta, 'enter-meta')
-        self._register(self._search_forward, 'search-forward')
-        self._register(self._search_backward, 'search-backward')
-        self._register(self._isearch_cancel, 'isearch-cancel')
-        self._register(self.describe_bindings, 'describe-bindings')
+            # app / view commands (composites auto-name: enter_meta -> enter-meta)
+            dpy.recenter, self.save, self.quit,
+            self.enter_meta, self.search_forward, self.search_backward,
+            self.isearch_cancel, self.describe_bindings, self.help_page_back,
+            (lambda: ed.insert(ord('\t')), 'insert-tab'),
+            (lambda: ed.insert(ord('\n')), 'insert-newline'),
+        ])
 
         self.modes: dict[KeyMode, Mode] = {
-            KeyMode.NORMAL: Mode(KeyMode.NORMAL, {
+            KeyMode.NORMAL: Mode({
                 curses.KEY_LEFT: 'move-backward-char',
                 curses.KEY_RIGHT: 'move-forward-char',
                 curses.KEY_UP: 'move-backward-line',
@@ -157,13 +159,13 @@ class Controller:
                 ctrl('R'): 'search-backward',
                 ctrl('O'): 'toggle-overwrite',
             }, on_unbound=self._normal_unbound),
-            KeyMode.ISEARCH: Mode(KeyMode.ISEARCH, {
+            KeyMode.ISEARCH: Mode({
                 ctrl('S'): 'isearch-forward',
                 ctrl('R'): 'isearch-backward',
                 ctrl('['): 'isearch-cancel',
                 127: 'isearch-delete',
             }, on_unbound=self._isearch_unbound),
-            KeyMode.META: Mode(KeyMode.META, {
+            KeyMode.META: Mode({
                 ctrl('['): 'clear-mark',
                 ord('a'): 'move-backward-page',
                 ord('b'): 'move-backward-para',
@@ -183,16 +185,21 @@ class Controller:
                 ord('z'): 'undo',
                 ord('?'): 'describe-bindings',
             }, on_unbound=self._meta_unbound, transient=True),
-            KeyMode.HELP: Mode(KeyMode.HELP, {}, on_unbound=self._help_unbound),
+            # HELP pages the binding list: Left/Up/Bksp/Del page back, any other
+            # key pages forward and dismisses past the last page.
+            KeyMode.HELP: Mode({
+                curses.KEY_LEFT: 'help-page-back',
+                curses.KEY_UP: 'help-page-back',
+                curses.KEY_BACKSPACE: 'help-page-back',
+                127: 'help-page-back',
+            }, on_unbound=self._help_unbound),
         }
-        self.stack: list[Mode] = [self.modes[KeyMode.NORMAL]]
+        # The runtime mode stack holds KeyMode values keying into self.modes;
+        # NORMAL is the base, prefix/help modes push on top.
+        self.mode_stack: list[KeyMode] = [KeyMode.NORMAL]
+        self.help_page: int = 0
 
-        # startup validation: every bound name resolves (also the future
-        # YAML-config validator).
-        for mode in self.modes.values():
-            for key, name in mode.bindings.items():
-                assert name in self.commands, \
-                    f'{mode.name.name}: {keyname(key)} -> unknown command {name!r}'
+        self._validate_bindings()
 
     def status_message(self, cursor: Cell) -> str:
         if self.dpy.message:
@@ -221,10 +228,11 @@ class Controller:
 
     def interactive(self) -> None:
         while self.active:
-            if self.stack[-1].name is KeyMode.HELP:
+            if self.mode_stack[-1] is KeyMode.HELP:
                 self.dpy.show_overlay(self._help_lines())
                 cursor = Cell(0, 0)
-                status = ' HELP — any key to dismiss'
+                status = (f' HELP  page {self.help_page + 1}/{self._help_pages()}'
+                          '  —  any key: forward,  Left/Bksp: back')
             else:
                 cursor = self.dpy.paint(self.ed.mark)
                 status = self.status_message(cursor)
@@ -313,134 +321,135 @@ class Controller:
             self.dpy.layout.move_forward_page()
         return self._run(max_time, step)
 
-    def _register(self, fn: Callable[[], None], name: str | None = None) -> str:
-        name = name or fn.__name__.replace('_', '-')
-        assert name not in self.commands, name    # two callables kebab-casing to the same name would silently shadow
-        self.commands[name] = fn
-        return name
+    def register_commands(self, items: list) -> None:
+        """Register commands from a list of bare callables (auto-named from
+        __name__, kebab-cased) or (callable, name) pairs."""
+        for item in items:
+            fn, name = item if isinstance(item, tuple) else (item, None)
+            name = name or fn.__name__.replace('_', '-')
+            assert name not in self.commands, name    # duplicate would silently shadow
+            self.commands[name] = fn
+
+    def _validate_bindings(self) -> None:
+        """Every bound command name must resolve (also the future YAML-config
+        validator)."""
+        bound = {name for mode in self.modes.values() for name in mode.bindings.values()}
+        missing = bound - set(self.commands)
+        assert not missing, f'bindings reference unknown commands: {sorted(missing)}'
 
     def _push(self, m: KeyMode) -> None:
-        self.stack.append(self.modes[m])
+        self.mode_stack.append(m)
 
     def _pop(self) -> None:
-        assert len(self.stack) > 1, "cannot pop the base mode"
-        self.stack.pop()
+        assert len(self.mode_stack) > 1, "cannot pop the base mode"
+        self.mode_stack.pop()
 
-    def _enter_meta(self) -> None:
+    def enter_meta(self) -> None:
         self._push(KeyMode.META)
 
-    def _search_forward(self) -> None:
+    def search_forward(self) -> None:
         self._push(KeyMode.ISEARCH)
         self.ed.isearch_forward()
 
-    def _search_backward(self) -> None:
+    def search_backward(self) -> None:
         self._push(KeyMode.ISEARCH)
         self.ed.isearch_backward()
 
-    def _isearch_cancel(self) -> None:
+    def isearch_cancel(self) -> None:
         self.ed.isearch_cancel()
         self._pop()
 
-    def _help_unbound(self, key: int) -> bool:
-        self._pop()                       # any key dismisses the overlay
-        return True
-
     def describe_bindings(self) -> None:
-        if self.stack[-1].transient:      # leave the META prefix we arrived through
+        if self.modes[self.mode_stack[-1]].transient:   # leave the META prefix we arrived through
             self._pop()
+        self.help_page = 0
         self._push(KeyMode.HELP)
 
-    def _help_lines(self) -> list[str]:
-        """Lay bindings out as columns, one group per mode (further chunked
-        into sub-columns if a mode's own body overflows dpy.rows), each
-        column sized to its own longest entry — this is the dense packing
-        that fits all three modes in exactly 80x24. If that dense packing
-        would exceed dpy.cols (a narrower terminal, or an entry that grew a
-        char), fall back to `_help_lines_safe`, which guarantees both axes
-        fit by construction rather than by truncating content."""
-        mode_columns: list[list[str]] = []
-        for km in (KeyMode.NORMAL, KeyMode.META, KeyMode.ISEARCH):
-            mode = self.modes[km]
-            entries = [f'{keyname(key):<8}{mode.bindings[key]}' for key in sorted(mode.bindings)]
-            body = [f'-- {km.name} --'] + entries
-            for i in range(0, len(body), self.dpy.rows):
-                mode_columns.append(body[i:i + self.dpy.rows])
+    def help_page_back(self) -> None:
+        self.help_page = max(0, self.help_page - 1)
 
-        col_widths = [max(len(e) for e in col) for col in mode_columns]
-        native_width = sum(col_widths) + len(col_widths) - 1     # single-space gutters
-        if mode_columns and native_width <= self.dpy.cols:
-            height = max(len(col) for col in mode_columns)
-            return [
-                ' '.join((col[r] if r < len(col) else '').ljust(w)
-                         for col, w in zip(mode_columns, col_widths)).rstrip()
-                for r in range(height)
-            ]
-
-        return self._help_lines_safe(
-            [item for col in mode_columns for item in col])
-
-    def _help_lines_safe(self, items: list[str]) -> list[str]:
-        """Fallback for when the dense per-mode packing in `_help_lines`
-        doesn't fit dpy.cols: a single uniform column-major grid sized so
-        ncols * col_width <= dpy.cols and ncols * dpy.rows is never
-        exceeded. An entry individually wider than dpy.cols can't be padded
-        into a cell without cutting its text, so it (and any items bumped
-        by a too-small grid) is counted and reported on the final line —
-        signalled, never silently dropped."""
-        gutter = 2
-        cols, rows = self.dpy.cols, self.dpy.rows
-
-        fits = [it for it in items if len(it) + gutter <= cols]
-        unfit = len(items) - len(fits)
-
-        col_width = max((len(it) for it in fits), default=0) + gutter
-        ncols = max(1, cols // col_width) if col_width else 1
-        capacity = ncols * rows
-
-        overflow = unfit > 0 or len(fits) > capacity
-        if overflow:
-            shown = fits[:max(0, capacity - 1)]           # reserve one cell for the marker
-            hidden = unfit + (len(fits) - len(shown))      # derived from what's actually shown, not a parallel formula
-            for marker in (f'-- ({hidden} more; widen terminal) --',
-                           f'-- {hidden} more --', f'+{hidden} more'):
-                if len(marker) + gutter <= col_width:
-                    break
-            marker = marker[:max(0, col_width - gutter)]   # hard cap: marker must fit its own cell regardless
-            shown.append(marker)
+    def _help_unbound(self, key: int) -> bool:
+        # Any non-back key pages forward; past the last page it dismisses.
+        if self.help_page + 1 < self._help_pages():
+            self.help_page += 1
         else:
-            shown = fits
+            self._pop()
+        return True
 
-        nrows = -(-len(shown) // ncols) if shown else 0   # ceil division; <= rows
-        columns = [shown[c * nrows:(c + 1) * nrows] for c in range(ncols)]
-        return [
-            ''.join((col[r] if r < len(col) else '').ljust(col_width)
-                    for col in columns).rstrip()
-            for r in range(nrows)
-        ]
+    # --- Help: a paged grid of every key chord and the command it runs. ---
+    # Cell width is 26 at 80 cols (6 for the chord, 20 for the command);
+    # ncols scales with terminal width, and content spills onto extra pages
+    # rather than being truncated or dropped.
 
-    def _chord_for(self, command_name: str) -> str | None:
-        """Key chord that invokes `command_name`, e.g. 'Esc ?'. Handles a direct
-        NORMAL binding and a binding inside a prefix mode reached from NORMAL."""
-        normal = self.modes[KeyMode.NORMAL]
-        for key, name in normal.bindings.items():
-            if name == command_name:
-                return keyname(key)
-        for mode in self.modes.values():
-            if mode.name is KeyMode.NORMAL:
-                continue
-            for key, name in mode.bindings.items():
-                if name != command_name:
-                    continue
-                enter = next((keyname(k) for k, n in normal.bindings.items()
-                              if n == f'enter-{mode.name.name.lower()}'), None)
-                return f'{enter} {keyname(key)}' if enter else keyname(key)
+    def _help_entries(self) -> list[tuple[str, str]]:
+        """Every (chord, command) binding across the editing modes, sorted by
+        command name. META keys carry their `Esc ` prefix so the chord is
+        unambiguous (a bare `v` would read like self-insert)."""
+        entries: list[tuple[str, str]] = []
+        for km in (KeyMode.NORMAL, KeyMode.META, KeyMode.ISEARCH):
+            for key, name in self.modes[km].bindings.items():
+                entries.append((self._binding_chord(km, key), name))
+        entries.sort(key=lambda e: e[1])
+        return entries
+
+    def _binding_chord(self, km: KeyMode, key: int) -> str:
+        """Full chord for `key` in mode `km`, prefixing the key that enters a
+        non-base prefix mode (e.g. META's `v` -> `Esc v`)."""
+        if km is KeyMode.NORMAL:
+            return keyname(key)
+        enter = self.modes[KeyMode.NORMAL].chord_for(f'enter-{km.name.lower()}')
+        prefix = f'{keyname(enter)} ' if enter is not None else ''
+        return f'{prefix}{keyname(key)}'
+
+    def _help_grid(self) -> tuple[int, int, int]:
+        """(ncols, colw, keyw) for the current terminal. The cell is sized to
+        the actual bindings — `keyw` for the widest chord, the rest for the
+        widest command — so nothing is truncated or bled into the next column
+        (the lone `Esc Esc` chord is 7 wide, so a cell is 28, not the nominal
+        26). Columns pack to the terminal width with 1-char gutters; a cell
+        wider than the whole terminal (a very narrow screen) is clipped."""
+        entries = self._help_entries()
+        keyw = max((len(chord) for chord, _ in entries), default=0)
+        cmdw = max((len(cmd) for _, cmd in entries), default=0)
+        cellw = keyw + 1 + cmdw
+        ncols = max(1, (self.dpy.cols + 1) // (cellw + 1))
+        colw = cellw if ncols * (cellw + 1) - 1 <= self.dpy.cols else self.dpy.cols
+        return ncols, colw, keyw
+
+    def _help_pages(self) -> int:
+        ncols, _, _ = self._help_grid()
+        return max(1, -(-len(self._help_entries()) // (ncols * self.dpy.rows)))
+
+    def _help_lines(self) -> list[str]:
+        """The current help page as screen rows: a column-major grid of
+        `chord command` cells, each padded to the column width."""
+        ncols, colw, keyw = self._help_grid()
+        rows = self.dpy.rows
+        entries = self._help_entries()
+        page = max(0, min(self.help_page, self._help_pages() - 1))
+        chunk = entries[page * ncols * rows:(page + 1) * ncols * rows]
+        cells = [f'{chord:<{keyw}} {cmd}'[:colw] for chord, cmd in chunk]
+        lines = []
+        for r in range(rows):
+            row = [cells[c * rows + r].ljust(colw)
+                   for c in range(ncols) if c * rows + r < len(cells)]
+            lines.append(' '.join(row).rstrip())
+        return lines
+
+    def _chord_for(self, command: str) -> str | None:
+        """Human chord that invokes `command`, e.g. 'Esc ?', or None if unbound.
+        Prefers a direct NORMAL binding, else the first prefix mode that has it."""
+        for km in self.modes:
+            key = self.modes[km].chord_for(command)
+            if key is not None:
+                return self._binding_chord(km, key)
         return None
 
     def _beep(self, key: int) -> None:
         hint = self._chord_for('describe-bindings')
         suffix = f' — {hint} for help' if hint else ''
         self.dpy.show_message(
-            f'No action for {keyname(key)} in {self.stack[-1].name.name}{suffix}',
+            f'No action for {keyname(key)} in {self.mode_stack[-1].name}{suffix}',
             True)
 
     def _normal_unbound(self, key: int) -> bool:
@@ -463,12 +472,13 @@ class Controller:
 
     def dispatch(self, key: int) -> None:
         """Route one key through the current mode."""
-        mode = self.stack[-1]
+        km = self.mode_stack[-1]
+        mode = self.modes[km]
         name = mode.bindings.get(key)
         if name:
             self.commands[name]()
         elif not mode.on_unbound(key):        # declined -> pop and re-dispatch below
-            self.stack.pop()
+            self.mode_stack.pop()
             return self.dispatch(key)
-        if mode.transient and self.stack[-1] is mode:
-            self.stack.pop()
+        if mode.transient and self.mode_stack[-1] == km:
+            self.mode_stack.pop()
