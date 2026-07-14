@@ -231,8 +231,12 @@ class Controller:
             if self.mode_stack[-1] is KeyMode.HELP:
                 self.dpy.show_overlay(self._help_lines())
                 cursor = Cell(0, 0)
-                status = (f' HELP  page {self.help_page + 1}/{self._help_pages()}'
-                          '  —  any key: forward,  Left/Bksp: back')
+                pages = self._help_pages()
+                if pages == 1:
+                    status = ' HELP - any key to dismiss'
+                else:
+                    status = (f' HELP page {self.help_page + 1}/{pages}'
+                              ' - any key forward, Left/Bksp back')
             else:
                 cursor = self.dpy.paint(self.ed.mark)
                 status = self.status_message(cursor)
@@ -447,7 +451,7 @@ class Controller:
 
     def _beep(self, key: int) -> None:
         hint = self._chord_for('describe-bindings')
-        suffix = f' — {hint} for help' if hint else ''
+        suffix = f' - {hint} for help' if hint else ''
         self.dpy.show_message(
             f'No action for {keyname(key)} in {self.mode_stack[-1].name}{suffix}',
             True)

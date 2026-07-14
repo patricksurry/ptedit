@@ -165,3 +165,13 @@ def test_unbound_error_names_help_chord(tmp_path):
     c.dispatch(controller.ctrl('G'))                  # C-G: unbound in NORMAL
     assert 'No action' in c.dpy.message
     assert 'Esc ? for help' in c.dpy.message
+
+
+def test_user_facing_text_is_ascii(tmp_path):
+    """The screen renders one iso-8859-1 byte per char, so codepoints > 255
+    (e.g. an em-dash) can't display — keep messages and help ASCII."""
+    c = _ctrl(tmp_path)
+    c.dispatch(controller.ctrl('['))                  # META
+    c.dispatch(ord('Z'))                              # unmapped -> beep message
+    assert c.dpy.message.isascii(), repr(c.dpy.message)
+    assert all(ln.isascii() for ln in c._help_lines())
