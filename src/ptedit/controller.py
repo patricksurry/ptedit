@@ -46,10 +46,15 @@ def ctrl(c: str) -> int:
 
 # Codes with a nicer label than the raw control-chord / character.
 _KEYNAMES: dict[int, str] = {
-    27: 'Esc', 32: 'Space', 127: 'Del',
-    curses.KEY_LEFT: 'Left', curses.KEY_RIGHT: 'Right',
-    curses.KEY_UP: 'Up', curses.KEY_DOWN: 'Down',
-    curses.KEY_ENTER: 'Enter', curses.KEY_BACKSPACE: 'Bksp',
+    27: 'Esc',
+    32: 'Space',
+    127: 'Del',
+    curses.KEY_LEFT: 'Left',
+    curses.KEY_RIGHT: 'Right',
+    curses.KEY_UP: 'Up',
+    curses.KEY_DOWN: 'Down',
+    curses.KEY_ENTER: 'Enter',
+    curses.KEY_BACKSPACE: 'Bksp',
 }
 
 

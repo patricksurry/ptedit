@@ -176,6 +176,7 @@ class Display:
 
         if top_changed or selection or self.prev_selection or self.overlay_painted:
             first_dirty = 0
+            self.overlay_painted = False       # consumed: this frame is the full redraw it forced
         elif damage_pos is not None:
             first_dirty = self._first_dirty_row(damage_pos, top_idx)
         else:
@@ -192,6 +193,5 @@ class Display:
             stats.tick('paint.no_scroll')
 
         self.prev_selection = selection
-        self.overlay_painted = False
         self.doc.set_point(pt)
         return cursor
