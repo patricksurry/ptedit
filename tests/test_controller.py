@@ -87,7 +87,7 @@ def test_meta_unknown_key_returns_to_normal(tmp_path):
     c.dispatch(controller.ctrl('['))
     c.dispatch(ord('Z'))                               # unbound in META
     assert c.mode_stack[-1] is controller.KeyMode.NORMAL
-    assert 'No action' in c.dpy.message
+    assert 'No binding for Esc Z' in c.dpy.message     # prefix included
 
 
 def test_help_shows_and_dismisses(tmp_path):
@@ -163,8 +163,8 @@ def test_meta_chord_shown_with_esc_prefix(tmp_path):
 def test_unbound_error_names_help_chord(tmp_path):
     c = _ctrl(tmp_path)
     c.dispatch(controller.ctrl('G'))                  # C-G: unbound in NORMAL
-    assert 'No action' in c.dpy.message
-    assert 'Esc ? for help' in c.dpy.message
+    assert 'No binding for C-G' in c.dpy.message
+    assert c.dpy.message.rstrip().endswith('Esc ? for help')   # hint right-justified
 
 
 def test_user_facing_text_is_ascii(tmp_path):

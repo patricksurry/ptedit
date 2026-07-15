@@ -450,11 +450,14 @@ class Controller:
         return None
 
     def _beep(self, key: int) -> None:
+        # Show the full chord (prefix included, e.g. 'Esc Z') and right-justify
+        # the help hint to the status edge: "No binding for X       Esc ? for help".
+        left = f'No binding for {self._binding_chord(self.mode_stack[-1], key)}'
         hint = self._chord_for('describe-bindings')
-        suffix = f' - {hint} for help' if hint else ''
-        self.dpy.show_message(
-            f'No action for {keyname(key)} in {self.mode_stack[-1].name}{suffix}',
-            True)
+        right = f'{hint} for help' if hint else ''
+        pad = self.dpy.cols - 1 - len(left)          # width after the leading status space
+        msg = left + right.rjust(pad) if right and pad >= len(right) + 1 else left
+        self.dpy.show_message(msg, True)
 
     def _normal_unbound(self, key: int) -> bool:
         if 32 <= key < 127:
