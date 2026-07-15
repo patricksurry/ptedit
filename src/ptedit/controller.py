@@ -114,14 +114,14 @@ class Controller:
         self.commands: dict[str, Callable[[], None]] = {}
         self.register_commands([
             # buffer commands
-            ed.move_backward_char, ed.move_forward_char,
-            ed.move_backward_word, ed.move_forward_word,
-            ed.move_backward_para, ed.move_forward_para,
-            ed.move_start_line, ed.move_end_line,
-            ed.move_forward_line, ed.move_backward_line,
-            ed.move_forward_page, ed.move_backward_page,
-            ed.move_start, ed.move_end,
-            ed.delete_backward_char, ed.delete_forward_char,
+            ed.move_char_backward, ed.move_char_forward,
+            ed.move_word_backward, ed.move_word_forward,
+            ed.move_para_backward, ed.move_para_forward,
+            ed.move_line_start, ed.move_line_end,
+            ed.move_line_forward, ed.move_line_backward,
+            ed.move_page_forward, ed.move_page_backward,
+            ed.move_doc_start, ed.move_doc_end,
+            ed.delete_char_backward, ed.delete_char_forward,
             ed.set_mark, ed.clear_mark,
             ed.copy, ed.cut, ed.paste, ed.copy_line, ed.cut_line,
             ed.undo, ed.redo, ed.squash, ed.toggle_overwrite,
@@ -136,18 +136,18 @@ class Controller:
 
         self.modes: dict[KeyMode, Mode] = {
             KeyMode.NORMAL: Mode({
-                curses.KEY_LEFT: 'move-backward-char',
-                curses.KEY_RIGHT: 'move-forward-char',
-                curses.KEY_UP: 'move-backward-line',
-                curses.KEY_DOWN: 'move-forward-line',
+                curses.KEY_LEFT: 'move-char-backward',
+                curses.KEY_RIGHT: 'move-char-forward',
+                curses.KEY_UP: 'move-line-backward',
+                curses.KEY_DOWN: 'move-line-forward',
                 curses.KEY_ENTER: 'insert-newline',
-                curses.KEY_BACKSPACE: 'delete-backward-char',
-                127: 'delete-backward-char',
-                ctrl('A'): 'move-start-line',
-                ctrl('B'): 'move-backward-word',
-                ctrl('F'): 'move-forward-word',
-                ctrl('E'): 'move-end-line',
-                ctrl('D'): 'delete-forward-char',
+                curses.KEY_BACKSPACE: 'delete-char-backward',
+                127: 'delete-char-backward',
+                ctrl('A'): 'move-line-start',
+                ctrl('B'): 'move-word-backward',
+                ctrl('F'): 'move-word-forward',
+                ctrl('E'): 'move-line-end',
+                ctrl('D'): 'delete-char-forward',
                 ctrl('I'): 'insert-tab',
                 ctrl('J'): 'insert-newline',
                 ctrl('L'): 'recenter',
@@ -167,12 +167,12 @@ class Controller:
             }, on_unbound=self._isearch_unbound),
             KeyMode.META: Mode({
                 ctrl('['): 'clear-mark',
-                ord('a'): 'move-backward-page',
-                ord('b'): 'move-backward-para',
-                ord('f'): 'move-forward-para',
-                ord('e'): 'move-forward-page',
-                ord('A'): 'move-start',
-                ord('E'): 'move-end',
+                ord('a'): 'move-page-backward',
+                ord('b'): 'move-para-backward',
+                ord('f'): 'move-para-forward',
+                ord('e'): 'move-page-forward',
+                ord('A'): 'move-doc-start',
+                ord('E'): 'move-doc-end',
                 ord('m'): 'set-mark',
                 ord('s'): 'save',
                 ord('q'): 'quit',
@@ -294,35 +294,35 @@ class Controller:
         return f"{frames} frames in {elapsed:0.2f}s = {frames/elapsed:.0f} fps"
 
     def _perf_insert_loop(self, max_time: float) -> str:
-        self.ed.move_end()
+        self.ed.move_doc_end()
         def step() -> None:
             self.ed.insert(ord('a'))
-            self.ed.move_backward_char()
-            self.dpy.layout.move_backward_line()
+            self.ed.move_char_backward()
+            self.dpy.layout.move_line_backward()
         return self._run(max_time, step)
 
     def _perf_up_from_end(self, max_time: float) -> str:
-        self.ed.move_end()
+        self.ed.move_doc_end()
         def step() -> None:
             if self.doc.at_start():
-                self.ed.move_end()
-            self.dpy.layout.move_backward_line()
+                self.ed.move_doc_end()
+            self.dpy.layout.move_line_backward()
         return self._run(max_time, step)
 
     def _perf_pgup_from_end(self, max_time: float) -> str:
-        self.ed.move_end()
+        self.ed.move_doc_end()
         def step() -> None:
             if self.doc.at_start():
-                self.ed.move_end()
-            self.dpy.layout.move_backward_page()
+                self.ed.move_doc_end()
+            self.dpy.layout.move_page_backward()
         return self._run(max_time, step)
 
     def _perf_pgdn_from_top(self, max_time: float) -> str:
-        self.ed.move_start()
+        self.ed.move_doc_start()
         def step() -> None:
             if self.doc.at_end():
-                self.ed.move_start()
-            self.dpy.layout.move_forward_page()
+                self.ed.move_doc_start()
+            self.dpy.layout.move_page_forward()
         return self._run(max_time, step)
 
     def register_commands(self, items: list) -> None:

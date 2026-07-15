@@ -22,7 +22,7 @@ def test_paste_with_empty_clipboard_preserves_region():
 
 def test_kill_region_does_not_clobber_clipboard():
     # Uses insert (which calls _kill_region internally) to avoid the doc-end issue
-    # that delete_forward_char hits when the region spans to end of document.
+    # that delete_char_forward hits when the region spans to end of document.
     doc, dpy, ed = make_editor('hello world')
     ed.clipboard = 'previous'
     doc.move_point(6)
@@ -63,10 +63,10 @@ def test_editor_delegates_line_and_page_moves_to_layout():
     dpy = display.Display(doc, display.Screen(24, 16))
     ed = editor_mod.Editor(doc, dpy.layout, lambda msg, warn=False: None)
     # each delegation is the very same bound method object as Layout's
-    for name in ('move_start_line', 'move_end_line', 'move_forward_line',
-                 'move_backward_line', 'move_forward_page', 'move_backward_page'):
+    for name in ('move_line_start', 'move_line_end', 'move_line_forward',
+                 'move_line_backward', 'move_page_forward', 'move_page_backward'):
         assert getattr(ed, name).__func__ is getattr(dpy.layout, name).__func__
     # and it actually moves the point through Layout
     doc.set_point_start()
-    ed.move_forward_line()
+    ed.move_line_forward()
     assert doc.get_point().position() == 7        # BoL of line 1

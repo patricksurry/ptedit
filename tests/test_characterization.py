@@ -20,18 +20,18 @@ def make_editor(text: str, rows: int = 24, cols: int = 80):
 
 
 def test_line_start_end_roundtrip():
-    """move_end_line then move_start_line returns to BoL of original line."""
+    """move_line_end then move_line_start returns to BoL of original line."""
     doc, dpy = make_dpy('one two three\nfour five six\n')
     doc.move_point(5)  # 't' of 'two' on first line
-    dpy.layout.move_end_line()
+    dpy.layout.move_line_end()
     assert doc.get_char() == '\n', f"expected newline at EOL, got {doc.get_char()!r}"
-    dpy.layout.move_start_line()
+    dpy.layout.move_line_start()
     assert doc.get_point().position() == 0
 
 
 def test_line_forward_back_preserves_column():
     """
-    move_forward_line + move_backward_line round-trip preserves position.
+    move_line_forward + move_line_backward round-trip preserves position.
 
     Layout.goal_col is set eagerly by the first vertical move (not resolved
     later by paint()) and persists across consecutive vertical moves — a
@@ -52,14 +52,14 @@ def test_line_forward_back_preserves_column():
     dpy.paint()         # normal command-loop shape; goal_col isn't set yet
     pt_before = doc.get_point().position()
     assert pt_before == 3
-    dpy.layout.move_forward_line()   # lands on 'a', clamped; goal_col set to 3
+    dpy.layout.move_line_forward()   # lands on 'a', clamped; goal_col set to 3
     dpy.paint()
-    dpy.layout.move_forward_line()   # 'seven!!': snaps to column 3 -> pos 11
+    dpy.layout.move_line_forward()   # 'seven!!': snaps to column 3 -> pos 11
     dpy.paint()
     assert doc.get_point().position() == 11
-    dpy.layout.move_backward_line()  # back on 'a'; clamp again, goal_col stays 3
+    dpy.layout.move_line_backward()  # back on 'a'; clamp again, goal_col stays 3
     dpy.paint()
-    dpy.layout.move_backward_line()  # back on 'three'; restores column 3
+    dpy.layout.move_line_backward()  # back on 'three'; restores column 3
     dpy.paint()
     assert doc.get_point().position() == pt_before
 

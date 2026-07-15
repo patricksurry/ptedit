@@ -96,7 +96,7 @@ def test_help_shows_and_dismisses(tmp_path):
     c.dispatch(ord('?'))                              # describe-bindings
     assert c.mode_stack[-1] is controller.KeyMode.HELP
     lines = c._help_lines()
-    assert any('move-forward-char' in ln for ln in lines)
+    assert any('move-char-forward' in ln for ln in lines)
     # page forward through every page; the key past the last page dismisses
     for _ in range(c._help_pages()):
         c.dispatch(ord('x'))
@@ -127,8 +127,8 @@ def test_help_paging_covers_every_binding_without_loss(tmp_path):
     c = _ctrl(tmp_path)
     assert c._help_pages() * _page_capacity(c) >= len(c._help_entries())
     blob = '\n'.join(c._help_lines())                 # page 0
-    for cmd in ('move-forward-char', 'save', 'describe-bindings',
-                'isearch-forward', 'delete-backward-char'):
+    for cmd in ('move-char-forward', 'save', 'describe-bindings',
+                'isearch-forward', 'delete-char-backward'):
         assert cmd in blob, cmd                       # full name, untruncated at 80
 
 
@@ -157,7 +157,7 @@ def test_meta_chord_shown_with_esc_prefix(tmp_path):
     chords = {cmd: chord for chord, cmd in c._help_entries()}
     assert chords['paste'] == 'Esc v'                 # META key carries its prefix
     assert chords['clear-mark'] == 'Esc Esc'
-    assert chords['move-forward-char'] == 'Right'     # NORMAL key shown bare
+    assert chords['move-char-forward'] == 'Right'     # NORMAL key shown bare
 
 
 def test_unbound_error_names_help_chord(tmp_path):

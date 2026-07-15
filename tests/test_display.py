@@ -20,9 +20,9 @@ def test_frame():
 def test_wrap():
     doc = document.Document('the\t quick brown fox\njumps \tover the lazy dog')
     dpy = display.Display(doc, display.Screen(24, 16))
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     assert doc.get_point().position() == 11
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     assert doc.get_point().position() == 21
 
 
@@ -36,14 +36,14 @@ def test_preferred_col():
     pt = doc.get_point()
 
     while not doc.at_end():
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
         dpy.paint()
         assert doc.get_point() != pt
         pt = doc.get_point()
     assert dpy.layout.goal_col == 10
 
     while not doc.at_start():
-        dpy.layout.move_backward_line()
+        dpy.layout.move_line_backward()
         dpy.paint()
         assert doc.get_point() != pt, f"failed at {pt.position()}"
         pt = doc.get_point()
@@ -56,7 +56,7 @@ def test_paint():
 
     # forward page+
     for _ in range(32):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
     dpy.paint()
 
     doc.set_point_end()
@@ -64,7 +64,7 @@ def test_paint():
 
     # backward page+
     for _ in range(32):
-        dpy.layout.move_backward_line()
+        dpy.layout.move_line_backward()
     dpy.paint()
 
     doc.set_point_end()
@@ -78,7 +78,7 @@ def test_end():
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
     doc.move_point(-1)
-    dpy.layout.move_backward_line()
+    dpy.layout.move_line_backward()
 
     assert not doc.at_end()
     dpy.paint()
@@ -100,7 +100,7 @@ def test_recenter():
     centered_top = dpy.top_loc
     # move the cursor down a few lines (stays within the window, sticky top holds)
     for _ in range(3):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
         dpy.paint()
     # top should still be the sticky one (cursor hasn't left the window)
     assert dpy.top_loc == centered_top
@@ -128,7 +128,7 @@ def test_no_scroll_emits_nothing():
     doc.set_point_start().move_point(4000)
     dpy.paint()                          # initial full redraw
     n_after_full = len(scr.events)
-    dpy.layout.move_forward_line()       # small move, no scroll, no selection
+    dpy.layout.move_line_forward()       # small move, no scroll, no selection
     dpy.paint()
     assert len(scr.events) == n_after_full, (
         f"no-scroll paint should emit zero puts, "
@@ -159,7 +159,7 @@ def test_guard_zone_scroll_redraws():
     # push it past the bottom of the comfort zone.
     extra = (dpy.rows - dpy.guard_rows) - dpy.preferred_row + 1
     for _ in range(extra):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
     dpy.paint()
 
     assert dpy.top_loc != initial_top, (
@@ -190,7 +190,7 @@ def test_selection_renders_highlighted_region():
     # but mark != point still → no_scroll-with-selection branch should
     # re-render the window (not take the zero-put fast path).
     n_before = len(scr.events)
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     dpy.paint(mark=mark)
     assert len(scr.events) - n_before > 0, (
         "no_scroll paint with an active selection must re-render the window"
