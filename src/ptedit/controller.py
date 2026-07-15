@@ -405,38 +405,40 @@ class Controller:
         prefix = f'{keyname(enter)} ' if enter is not None else ''
         return f'{prefix}{keyname(key)}'
 
-    def _help_grid(self) -> tuple[int, int, int]:
-        """(ncols, colw, keyw) for the current terminal. The cell is sized to
-        the actual bindings — `keyw` for the widest chord, the rest for the
-        widest command — so nothing is truncated or bled into the next column
-        (the lone `Esc Esc` chord is 7 wide, so a cell is 28, not the nominal
-        26). Columns pack to the terminal width with 1-char gutters; a cell
-        wider than the whole terminal (a very narrow screen) is clipped."""
-        entries = self._help_entries()
-        keyw = max((len(chord) for chord, _ in entries), default=0)
-        cmdw = max((len(cmd) for _, cmd in entries), default=0)
-        cellw = keyw + 1 + cmdw
-        ncols = max(1, (self.dpy.cols + 1) // (cellw + 1))
-        colw = cellw if ncols * (cellw + 1) - 1 <= self.dpy.cols else self.dpy.cols
-        return ncols, colw, keyw
+    # Cell = 5-wide chord + space + 20-wide command = 26; ncols scales with the
+    # terminal. A chord longer than 5 (only `Esc Esc`) overflows into the space
+    # and the cell truncates at the column width, so a long chord eats command
+    # room only in its own cell.
+    CHORDW = 5
+    CELLW = 26
+
+    def _help_grid(self) -> tuple[int, int]:
+        """(ncols, colw) for the current terminal width, 1-char gutters."""
+        ncols = max(1, (self.dpy.cols + 1) // self.CELLW)
+        colw = (self.dpy.cols + 1) // ncols - 1
+        return ncols, colw
 
     def _help_pages(self) -> int:
-        ncols, _, _ = self._help_grid()
+        ncols, _ = self._help_grid()
         return max(1, -(-len(self._help_entries()) // (ncols * self.dpy.rows)))
 
     def _help_lines(self) -> list[str]:
         """The current help page as screen rows: a column-major grid of
-        `chord command` cells, each padded to the column width."""
-        ncols, colw, keyw = self._help_grid()
+        `chord command` cells, each clipped/padded to the column width."""
+        ncols, colw = self._help_grid()
         rows = self.dpy.rows
         entries = self._help_entries()
         page = max(0, min(self.help_page, self._help_pages() - 1))
         chunk = entries[page * ncols * rows:(page + 1) * ncols * rows]
-        cells = [f'{chord:<{keyw}} {cmd}'[:colw] for chord, cmd in chunk]
+        cells = [f'{chord:<{self.CHORDW}} {cmd}'[:colw] for chord, cmd in chunk]
+        # Balance the page across all columns: fill column-major at ceil(n/ncols)
+        # rows so a short page doesn't stack into the first column and leave the
+        # rest blank.
+        nrows = max(1, -(-len(cells) // ncols))
         lines = []
-        for r in range(rows):
-            row = [cells[c * rows + r].ljust(colw)
-                   for c in range(ncols) if c * rows + r < len(cells)]
+        for r in range(nrows):
+            row = [cells[c * nrows + r].ljust(colw)
+                   for c in range(ncols) if c * nrows + r < len(cells)]
             lines.append(' '.join(row).rstrip())
         return lines
 

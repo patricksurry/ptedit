@@ -117,7 +117,7 @@ def test_help_lines_fit_the_screen_at_various_widths(tmp_path):
 
 
 def _page_capacity(c):
-    ncols, _, _ = c._help_grid()
+    ncols, _ = c._help_grid()
     return ncols * c.dpy.rows
 
 
