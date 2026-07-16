@@ -458,10 +458,10 @@ class Controller:
                 return self._binding_chord(km, key)
         return None
 
-    def _beep(self, key: int) -> None:
-        # Show the full chord (prefix included, e.g. 'Esc Z') and right-justify
-        # the help hint to the status edge: "No binding for X       Esc ? for help".
-        left = f'No binding for {self._binding_chord(self._key_mode, key)}'
+    def _beep(self, key: int, km: KeyMode) -> None:
+        # `km` (the handler's own mode) gives the chord its prefix, e.g. 'Esc Z'
+        # in META. Right-justify the help hint: "No binding for X    Esc ? for help".
+        left = f'No binding for {self._binding_chord(km, key)}'
         hint = self._chord_for('describe-bindings')
         right = f'{hint} for help' if hint else ''
         pad = self.dpy.cols - 1 - len(left)          # width after the leading status space
@@ -472,7 +472,7 @@ class Controller:
         if 32 <= key < 127:
             self.ed.insert(key)
         else:
-            self._beep(key)
+            self._beep(key, KeyMode.NORMAL)
         return True
 
     def _isearch_unbound(self, key: int) -> bool:
@@ -483,7 +483,7 @@ class Controller:
         return False
 
     def _meta_unbound(self, key: int) -> bool:
-        self._beep(key)
+        self._beep(key, KeyMode.META)
         return True
 
     def dispatch(self, key: int) -> None:
@@ -491,8 +491,7 @@ class Controller:
         popped as soon as it consumes a key, so its command runs in the parent
         context. The base mode (NORMAL) always handles a key (its on_unbound
         never declines), which bounds the pop / re-dispatch below."""
-        self._key_mode = self.mode_stack[-1]  # mode the key was pressed in (for messages)
-        mode = self.modes[self._key_mode]
+        mode = self.modes[self.mode_stack[-1]]
         name = mode.bindings.get(key)
         if mode.one_shot:
             self.mode_stack.pop()             # prefix reverts after this one key
