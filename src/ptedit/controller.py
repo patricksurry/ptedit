@@ -69,13 +69,17 @@ def keyname(code: int) -> str:
     return f'<{code}>'
 
 
+Command = Callable[[], None]
+DefaultCommand = Callable[[int], bool]      # handle unbound key, returns handled?
+
+
 @dataclass
 class Mode:
     # A mode's identity is the KeyMode it is stored under in Controller.modes,
     # so it isn't repeated here.
-    bindings: dict[int, str]                  # key code -> command name
-    on_unbound: Callable[[int], bool]         # unbound key: returns handled?
-    transient: bool = False                   # prefix mode: pop after one dispatch
+    bindings: dict[int, str]            # key code -> command name
+    on_unbound: DefaultCommand          # unbound key handler
+    one_shot: bool = False              # prefix mode: reverts after it consumes one key
 
     def chord_for(self, command: str) -> int | None:
         """The key bound to `command` in this mode, or None."""
@@ -111,7 +115,7 @@ class Controller:
         # The command registry: a name -> zero-arg callable "dictionary" of
         # words. Bare callables are auto-named from __name__ (kebab-cased);
         # (callable, name) pairs name a closure explicitly.
-        self.commands: dict[str, Callable[[], None]] = {}
+        self.commands: dict[str, Command] = {}
         self.register_commands([
             # buffer commands
             ed.move_char_backward, ed.move_char_forward,
@@ -184,7 +188,7 @@ class Controller:
                 ord('y'): 'redo',
                 ord('z'): 'undo',
                 ord('?'): 'describe-bindings',
-            }, on_unbound=self._meta_unbound, transient=True),
+            }, on_unbound=self._meta_unbound, one_shot=True),
             # HELP pages the binding list: Left/Up/Bksp/Del page back, any other
             # key pages forward and dismisses past the last page.
             KeyMode.HELP: Mode({
@@ -283,7 +287,7 @@ class Controller:
             return f"unknown scenario: {scenario}; choices: {list(runners)}"
         return runners[scenario](max_time)
 
-    def _run(self, max_time: float, step: Callable[[], None]) -> str:
+    def _run(self, max_time: float, step: Command) -> str:
         frames = 0
         start = time()
         while time() - start < max_time:
@@ -325,13 +329,16 @@ class Controller:
             self.dpy.layout.move_page_forward()
         return self._run(max_time, step)
 
-    def register_commands(self, items: list) -> None:
+    def register_commands(self, items: list[Command|tuple[Command, str]]) -> None:
         """Register commands from a list of bare callables (auto-named from
         __name__, kebab-cased) or (callable, name) pairs."""
         for item in items:
-            fn, name = item if isinstance(item, tuple) else (item, None)
-            name = name or fn.__name__.replace('_', '-')
-            assert name not in self.commands, name    # duplicate would silently shadow
+            match item:
+                case (fn, name):
+                    pass
+                case fn:
+                    name = fn.__name__.replace('_', '-')
+            assert name not in self.commands, f"{name} already bound"
             self.commands[name] = fn
 
     def _validate_bindings(self) -> None:
@@ -364,8 +371,8 @@ class Controller:
         self._pop()
 
     def describe_bindings(self) -> None:
-        if self.modes[self.mode_stack[-1]].transient:   # leave the META prefix we arrived through
-            self._pop()
+        # Reached via Esc ?; dispatch has already popped the one-shot META, so
+        # HELP pushes onto NORMAL.
         self.help_page = 0
         self._push(KeyMode.HELP)
 
@@ -435,7 +442,7 @@ class Controller:
         # rows so a short page doesn't stack into the first column and leave the
         # rest blank.
         nrows = max(1, -(-len(cells) // ncols))
-        lines = []
+        lines: list[str] = []
         for r in range(nrows):
             row = [cells[c * nrows + r].ljust(colw)
                    for c in range(ncols) if c * nrows + r < len(cells)]
@@ -454,7 +461,7 @@ class Controller:
     def _beep(self, key: int) -> None:
         # Show the full chord (prefix included, e.g. 'Esc Z') and right-justify
         # the help hint to the status edge: "No binding for X       Esc ? for help".
-        left = f'No binding for {self._binding_chord(self.mode_stack[-1], key)}'
+        left = f'No binding for {self._binding_chord(self._key_mode, key)}'
         hint = self._chord_for('describe-bindings')
         right = f'{hint} for help' if hint else ''
         pad = self.dpy.cols - 1 - len(left)          # width after the leading status space
@@ -480,14 +487,17 @@ class Controller:
         return True
 
     def dispatch(self, key: int) -> None:
-        """Route one key through the current mode."""
-        km = self.mode_stack[-1]
-        mode = self.modes[km]
+        """Route one key through the current mode. A one-shot (prefix) mode is
+        popped as soon as it consumes a key, so its command runs in the parent
+        context. The base mode (NORMAL) always handles a key (its on_unbound
+        never declines), which bounds the pop / re-dispatch below."""
+        self._key_mode = self.mode_stack[-1]  # mode the key was pressed in (for messages)
+        mode = self.modes[self._key_mode]
         name = mode.bindings.get(key)
+        if mode.one_shot:
+            self.mode_stack.pop()             # prefix reverts after this one key
         if name:
             self.commands[name]()
-        elif not mode.on_unbound(key):        # declined -> pop and re-dispatch below
+        elif not mode.on_unbound(key):        # declined -> re-dispatch in the mode below
             self.mode_stack.pop()
-            return self.dispatch(key)
-        if mode.transient and self.mode_stack[-1] == km:
-            self.mode_stack.pop()
+            self.dispatch(key)
