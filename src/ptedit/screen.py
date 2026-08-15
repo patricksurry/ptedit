@@ -36,6 +36,10 @@ class CursesScreen(Screen):
     def __init__(self, win: curses.window):
         self.win = win
         self.win.scrollok(False)
+        # keypad mode makes a lone Esc wait ESCDELAY (default ~1s) to see if it
+        # starts an escape sequence; shrink it so Esc (our meta prefix, and the
+        # key that dismisses help) registers promptly instead of after a pause.
+        curses.set_escdelay(25)
         # the actual cursor shape is determined by the terminal, e.g. for OS X terminal
         # use Terminal > Settings > Text > Cursor to pick vert or horiz bar vs block etc
         curses.curs_set(2)          # 0 is invisible, 1 is normal, 2 is high-viz (e.g. block)

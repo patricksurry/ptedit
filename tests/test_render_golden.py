@@ -61,10 +61,10 @@ def test_golden_pgdn_pgup():
     dpy, doc, scr = _make_display()
     dpy.paint()
     for _ in range(2):
-        dpy.layout.move_forward_page()
+        dpy.layout.move_page_forward()
         dpy.paint()
     for _ in range(2):
-        dpy.layout.move_backward_page()
+        dpy.layout.move_page_backward()
         dpy.paint()
     assert_golden('pgdn_pgup', scr.encode())
 
@@ -86,7 +86,7 @@ def test_golden_end_to_top():
     doc.set_point_end()
     dpy.paint()
     for _ in range(5):
-        dpy.layout.move_backward_page()
+        dpy.layout.move_page_backward()
         dpy.paint()
     assert_golden('end_to_top', scr.encode())
 
@@ -102,11 +102,11 @@ def test_golden_sticky_top():
     dpy, doc, scr = _make_display()
     # Put cursor 5 pages in so there is room above and below.
     for _ in range(5):
-        dpy.layout.move_forward_page()
+        dpy.layout.move_page_forward()
     dpy.paint()
     first_top = dpy.top_loc          # record anchor after initial paint
     for _ in range(5):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
         dpy.paint()
         assert dpy.top_loc == first_top, (
             f"sticky top violated: top moved from {first_top} to {dpy.top_loc}"

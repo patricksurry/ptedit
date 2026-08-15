@@ -390,9 +390,9 @@ def test_goal_column_persists_across_short_line():
     doc = document.Document('abcdefgh\nab\nabcdefgh\n')
     lay = layout.Layout(doc, cols=16, rows=8)
     doc.move_point(5)                           # line 0, col 5
-    lay.move_forward_line()
+    lay.move_line_forward()
     assert doc.get_point().position() == 11     # 'ab' line clamps to its newline (col 2)
-    lay.move_forward_line()
+    lay.move_line_forward()
     assert doc.get_point().position() == 17     # long line again: goal col 5 restored
 
 
@@ -400,7 +400,7 @@ def test_vertical_move_at_start_clamps_to_bol():
     doc = document.Document('abcdefgh\nab\n')
     lay = layout.Layout(doc, cols=16, rows=8)
     doc.move_point(5)
-    lay.move_backward_line()                    # no line above: clamp to BoL
+    lay.move_line_backward()                    # no line above: clamp to BoL
     assert doc.get_point().position() == 0
 
 
@@ -418,7 +418,7 @@ def test_goal_col_stale_after_coalesced_backward_delete():
     delete backward 1 char — this coalesces into the same Edit and trims
     `ins` from 'XY' to 'X' in place, so the point's Location keeps the same
     (piece=post, offset=0) but now denotes position 12 instead of 13 (i.e.
-    column 5 of 'ghijXkl', not column 6). The following move_backward_line
+    column 5 of 'ghijXkl', not column 6). The following move_line_backward
     must land on column 5 (the recomputed goal), not the stale column 6.
     """
     doc = document.Document('abcdef\nghijkl\n')
@@ -426,22 +426,22 @@ def test_goal_col_stale_after_coalesced_backward_delete():
     doc.on_change = lay.note_change   # wire the hook, like Display does
 
     doc.set_point_start().move_point(4)          # line 0, col 4
-    lay.move_forward_line()
+    lay.move_line_forward()
     assert doc.get_point().position() == 11      # line 1, col 4
 
     doc.insert('XY')                              # line 1 now 'ghijXYkl\n'
     assert doc.get_point().position() == 13       # col 6
 
-    lay.move_backward_line()                      # line 0, col 6 -> 'f' at pos 6
+    lay.move_line_backward()                      # line 0, col 6 -> 'f' at pos 6
     assert doc.get_point().position() == 6
-    lay.move_forward_line()                       # back to line 1, col 6 -> pos 13
+    lay.move_line_forward()                       # back to line 1, col 6 -> pos 13
     assert doc.get_point().position() == 13
 
     doc.delete(-1)                                 # coalesces: ins 'XY' -> 'X'
     assert doc.get_data() == 'abcdef\nghijXkl\n'
     assert doc.get_point().position() == 12        # line 1, col 5 now (not col 6)
 
-    lay.move_backward_line()
+    lay.move_line_backward()
     # The cursor's actual column after the delete is 5 ('ghijXkl'[5] == 'k').
     # A stale goal_col=6 would land at position 6 ('f'); the fix recomputes
     # goal_col from the post-delete cursor and lands at position 5 ('e').
@@ -466,5 +466,5 @@ def test_vertical_move_from_doc_end_without_trailing_newline():
     doc = document.Document('abcdefgh\nabcd')
     lay = layout.Layout(doc, cols=16, rows=8)
     doc.set_point_end()                         # EOD marker at col 4 of line 1
-    lay.move_backward_line()
+    lay.move_line_backward()
     assert doc.get_point().position() == 9      # BoL of 'abcd' (line 1, col 0)

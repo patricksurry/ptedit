@@ -36,6 +36,16 @@ class Editor:
         # TODO cycle mode action
         self.match_mode: MatchMode = MatchMode.SMART_CASE
 
+        # Facade: line/page motion is a buffer command, exposed under `ed`.
+        # The mechanism (ladder, goal column) stays in Layout — this delegates,
+        # it does not relocate.
+        self.move_line_start = layout.move_line_start
+        self.move_line_end = layout.move_line_end
+        self.move_line_forward = layout.move_line_forward
+        self.move_line_backward = layout.move_line_backward
+        self.move_page_forward = layout.move_page_forward
+        self.move_page_backward = layout.move_page_backward
+
     def squash(self) -> None:
         self.mark = None            # locations don't survive chain surgery
         pos = self.doc.get_point().position()
@@ -44,21 +54,21 @@ class Editor:
 
     ### Navigation commands
 
-    def move_forward_char(self) -> None:
+    def move_char_forward(self) -> None:
         self.doc.move_point(1)
 
-    def move_backward_char(self) -> None:
+    def move_char_backward(self) -> None:
         self.doc.move_point(-1)
 
-    def move_forward_word(self) -> None:
+    def move_word_forward(self) -> None:
         self.doc.find_char_forward(whitespace)
         self.doc.find_not_char_forward(whitespace)
 
-    def move_backward_word(self) -> None:
+    def move_word_backward(self) -> None:
         self.doc.find_not_char_backward(whitespace)
         self.doc.find_char_backward(whitespace)
 
-    def move_forward_para(self) -> None:
+    def move_para_forward(self) -> None:
         while not self.doc.at_end():
             self.doc.find_char_forward('\n')
             self.doc.move_point(1)
@@ -66,7 +76,7 @@ class Editor:
                 break
         self.doc.find_not_char_forward(whitespace)
 
-    def move_backward_para(self) -> None:
+    def move_para_backward(self) -> None:
         self.doc.find_not_char_backward(whitespace)
         while not self.doc.at_start():
             self.doc.find_char_backward('\n')
@@ -77,10 +87,10 @@ class Editor:
 
     # Nb. line-oriented commands are implemented by renderer
 
-    def move_start(self) -> None:
+    def move_doc_start(self) -> None:
         self.doc.set_point_start()
 
-    def move_end(self) -> None:
+    def move_doc_end(self) -> None:
         self.doc.set_point_end()
 
     def set_mark(self) -> None:
@@ -192,11 +202,11 @@ class Editor:
         else:
             self.doc.insert(c)
 
-    def delete_forward_char(self) -> None:
+    def delete_char_forward(self) -> None:
         self._kill_region()
         self.doc.delete(1)
 
-    def delete_backward_char(self) -> None:
+    def delete_char_backward(self) -> None:
         self._kill_region()
         self.doc.delete(-1)
 
@@ -214,10 +224,10 @@ class Editor:
         self.doc.insert(self.clipboard)
 
     def _clip_line(self, cut: bool = False) -> str:
-        self.layout.move_start_line()
+        self.layout.move_line_start()
         self.mark = self.doc.get_point()
-        self.layout.move_end_line()
-        self.move_forward_char()
+        self.layout.move_line_end()
+        self.move_char_forward()
         return self._clip_region(cut)
 
     def copy_line(self) -> None:

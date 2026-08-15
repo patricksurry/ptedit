@@ -50,11 +50,11 @@ class Layout:
     # around `step()` itself — it detects a no-op move (dest == bol) after
     # the fact and resets the goal column there instead.
 
-    def move_start_line(self) -> None:
+    def move_line_start(self) -> None:
         """Move cursor to BoL of its current visual line."""
         self.clamp_to_bol()
 
-    def move_end_line(self) -> None:
+    def move_line_end(self) -> None:
         """Move cursor to the end of its current visual line."""
         self.clamp_to_bol()
         self.bol_to_next_bol()
@@ -88,19 +88,19 @@ class Layout:
             self.goal_col = 0
         self.last_vertical_dest = self.doc.get_point()
 
-    def move_forward_line(self) -> None:
+    def move_line_forward(self) -> None:
         """Move cursor one visual line forward, tracking the goal column."""
         self._move_vertical(forward=True)
 
-    def move_backward_line(self) -> None:
+    def move_line_backward(self) -> None:
         """Move cursor one visual line backward, tracking the goal column."""
         self._move_vertical(forward=False)
 
-    def move_forward_page(self) -> None:
+    def move_page_forward(self) -> None:
         """Move cursor `rows` visual lines forward."""
         self._move_vertical(forward=True, count=self.rows)
 
-    def move_backward_page(self) -> None:
+    def move_page_backward(self) -> None:
         """Move cursor `rows` visual lines backward."""
         self._move_vertical(forward=False, count=self.rows)
 

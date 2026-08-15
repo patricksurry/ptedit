@@ -20,9 +20,9 @@ def test_frame():
 def test_wrap():
     doc = document.Document('the\t quick brown fox\njumps \tover the lazy dog')
     dpy = display.Display(doc, display.Screen(24, 16))
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     assert doc.get_point().position() == 11
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     assert doc.get_point().position() == 21
 
 
@@ -36,14 +36,14 @@ def test_preferred_col():
     pt = doc.get_point()
 
     while not doc.at_end():
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
         dpy.paint()
         assert doc.get_point() != pt
         pt = doc.get_point()
     assert dpy.layout.goal_col == 10
 
     while not doc.at_start():
-        dpy.layout.move_backward_line()
+        dpy.layout.move_line_backward()
         dpy.paint()
         assert doc.get_point() != pt, f"failed at {pt.position()}"
         pt = doc.get_point()
@@ -56,7 +56,7 @@ def test_paint():
 
     # forward page+
     for _ in range(32):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
     dpy.paint()
 
     doc.set_point_end()
@@ -64,7 +64,7 @@ def test_paint():
 
     # backward page+
     for _ in range(32):
-        dpy.layout.move_backward_line()
+        dpy.layout.move_line_backward()
     dpy.paint()
 
     doc.set_point_end()
@@ -78,7 +78,7 @@ def test_end():
     dpy = display.Display(doc, display.Screen(24, 80))
     dpy.paint()
     doc.move_point(-1)
-    dpy.layout.move_backward_line()
+    dpy.layout.move_line_backward()
 
     assert not doc.at_end()
     dpy.paint()
@@ -100,7 +100,7 @@ def test_recenter():
     centered_top = dpy.top_loc
     # move the cursor down a few lines (stays within the window, sticky top holds)
     for _ in range(3):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
         dpy.paint()
     # top should still be the sticky one (cursor hasn't left the window)
     assert dpy.top_loc == centered_top
@@ -128,7 +128,7 @@ def test_no_scroll_emits_nothing():
     doc.set_point_start().move_point(4000)
     dpy.paint()                          # initial full redraw
     n_after_full = len(scr.events)
-    dpy.layout.move_forward_line()       # small move, no scroll, no selection
+    dpy.layout.move_line_forward()       # small move, no scroll, no selection
     dpy.paint()
     assert len(scr.events) == n_after_full, (
         f"no-scroll paint should emit zero puts, "
@@ -159,7 +159,7 @@ def test_guard_zone_scroll_redraws():
     # push it past the bottom of the comfort zone.
     extra = (dpy.rows - dpy.guard_rows) - dpy.preferred_row + 1
     for _ in range(extra):
-        dpy.layout.move_forward_line()
+        dpy.layout.move_line_forward()
     dpy.paint()
 
     assert dpy.top_loc != initial_top, (
@@ -190,7 +190,7 @@ def test_selection_renders_highlighted_region():
     # but mark != point still → no_scroll-with-selection branch should
     # re-render the window (not take the zero-put fast path).
     n_before = len(scr.events)
-    dpy.layout.move_forward_line()
+    dpy.layout.move_line_forward()
     dpy.paint(mark=mark)
     assert len(scr.events) - n_before > 0, (
         "no_scroll paint with an active selection must re-render the window"
@@ -384,3 +384,41 @@ def test_undo_screen_matches_fresh_render():
     ref_dpy.paint(None)
 
     assert frame_chars(scr) == frame_chars(ref_scr)
+
+
+def test_show_overlay_preserves_status_row():
+    doc = document.Document('body text\n' * 30)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)
+    # stamp a sentinel on the status row (row == dpy.rows) to prove it survives
+    scr.move(dpy.rows, 0)
+    scr.put(ord('#'))
+    dpy.show_overlay(['HELP LINE ONE', 'HELP LINE TWO'])
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('HELP LINE ONE')
+    assert scr.chars[dpy.rows][0] == ord('#')        # status row untouched
+
+
+def test_overlay_dismiss_forces_full_repaint():
+    """REGRESSION: dismissing the HELP overlay must not leave stale overlay
+    text on screen. show_overlay() writes straight to the screen without any
+    paint-side damage; if paint() doesn't know the text region was clobbered,
+    the next no-scroll paint (no top change, no selection, no doc edit) emits
+    zero cells and the overlay is frozen on screen underneath the live buffer.
+    """
+    doc = document.Document('body text line\n' * 30)
+    scr = GridScreen(24, 80)
+    dpy = display.Display(doc, scr)
+    dpy.paint(None)                                    # establish the buffer on screen
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('body text line')
+
+    dpy.show_overlay(['HELP OVERLAY LINE'])
+    assert ''.join(chr(c) for c in scr.chars[0]).startswith('HELP OVERLAY LINE')
+
+    # Dismiss: repaint with no scroll, no selection, no document edit —
+    # exactly the no-scroll fast path that used to emit nothing.
+    dpy.paint(None)
+    row0 = ''.join(chr(c) for c in scr.chars[0])
+    assert row0.startswith('body text line'), (
+        f"row 0 still shows stale overlay content: {row0!r}"
+    )

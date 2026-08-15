@@ -38,6 +38,7 @@ class Display:
         self.message = ''
         self.top_loc: Location | None = None     # ladder entry shown at screen row 0 last frame
         self.prev_selection: bool = False        # True if last frame painted a selection highlight
+        self.overlay_painted: bool = False       # True if show_overlay clobbered the text region
 
         # Last assignment wins: a second Display on the same doc would steal
         # this hook. Single-consumer by design (one Display per Document).
@@ -66,6 +67,14 @@ class Display:
         if warn:
             self.scr.alert()
             logging.warning(msg)
+
+    def show_overlay(self, lines: list[str]) -> None:
+        """Paint `lines` over the text region only; leave the status row intact."""
+        for r in range(self.rows):
+            self.scr.move(r, 0)
+            text = (lines[r] if r < len(lines) else '')[:self.cols]
+            self.scr.puts(text + ' ' * (self.cols - len(text)))
+        self.overlay_painted = True   # clobbered the text region: force a full redraw next paint
 
     def find_top(self) -> tuple[int, bool]:
         """Choose the screen-row-0 rung with a sticky top per docs/rendering.md.
@@ -165,8 +174,9 @@ class Display:
         cursor = Cell(row - top_idx, col)
         assert 0 <= cursor.row < self.rows, "find_top must keep the cursor on screen"
 
-        if top_changed or selection or self.prev_selection:
+        if top_changed or selection or self.prev_selection or self.overlay_painted:
             first_dirty = 0
+            self.overlay_painted = False       # consumed: this frame is the full redraw it forced
         elif damage_pos is not None:
             first_dirty = self._first_dirty_row(damage_pos, top_idx)
         else:
